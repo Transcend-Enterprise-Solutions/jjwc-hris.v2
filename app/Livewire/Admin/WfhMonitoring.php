@@ -6,9 +6,7 @@ use App\Models\WfhMonitoringEvent;
 use App\Models\WfhMonitoringSessionRecord;
 use App\Models\WfhMonitoringUrlRule;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Http;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -450,69 +448,16 @@ class WfhMonitoring extends Component
     public function displayLocationLabel($latitude, $longitude, ?string $fallback = null)
     {
         if (! is_numeric($latitude) || ! is_numeric($longitude)) {
-            return null;
+            return $fallback ? trim($fallback) : null;
         }
 
         $fallback = $fallback ? trim($fallback) : null;
-        $cacheKey = sprintf(
-            'wfh_geo_place_%s_%s',
-            number_format((float) $latitude, 4, '.', ''),
-            number_format((float) $longitude, 4, '.', '')
-        );
 
-        return Cache::remember($cacheKey, now()->addDays(14), function () use ($latitude, $longitude, $fallback) {
-            try {
-                $response = Http::withHeaders([
-                    'User-Agent' => 'JJWC-HRIS/1.0 (WFH monitoring map)',
-                ])
-                    ->acceptJson()
-                    ->timeout(4)
-                    ->retry(1, 200)
-                    ->get('https://nominatim.openstreetmap.org/reverse', [
-                        'format' => 'jsonv2',
-                        'lat' => $latitude,
-                        'lon' => $longitude,
-                        'zoom' => 18,
-                        'addressdetails' => 1,
-                    ]);
+        if ($fallback) {
+            return $fallback;
+        }
 
-                if ($response->successful()) {
-                    $payload = $response->json();
-                    $address = $payload['address'] ?? [];
-
-                    $city = $address['city']
-                        ?? $address['town']
-                        ?? $address['municipality']
-                        ?? $address['village']
-                        ?? $address['suburb']
-                        ?? null;
-
-                    $state = $address['state']
-                        ?? $address['region']
-                        ?? null;
-
-                    $country = $address['country'] ?? null;
-
-                    $parts = array_values(array_filter(array_unique(array_filter([
-                        $city,
-                        $state,
-                        $country,
-                    ]))));
-
-                    if (! empty($parts)) {
-                        return implode(', ', $parts);
-                    }
-
-                    if (! empty($payload['display_name'])) {
-                        return $payload['display_name'];
-                    }
-                }
-            } catch (\Throwable $e) {
-                // Fall back to the label stored in the session if reverse geocoding fails.
-            }
-
-            return $fallback ? trim($fallback) : null;
-        });
+        return number_format((float) $latitude, 5) . ', ' . number_format((float) $longitude, 5);
     }
 
     protected function latestScreenSnapshot($session)

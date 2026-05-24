@@ -346,12 +346,15 @@
     async startLiveSnapshots(sessionId, employeeName = null) {
         this.stopLocalLiveScreen(false);
         this.stopLiveSnapshots(false);
-        await this.selectMonitoringSession(sessionId, 'screens');
-        await this.$nextTick();
-
+        this.tab = 'screens';
         this.snapshotSessionId = sessionId;
         this.snapshotEmployeeName = employeeName;
         this.snapshotStatus = 'Starting live snapshots...';
+        this.snapshotUrl = null;
+        this.snapshotCapturedAt = null;
+        this.snapshotType = null;
+        this.selectMonitoringSession(sessionId, 'screens');
+        await this.$nextTick();
 
         let request = null;
 
@@ -407,6 +410,9 @@
         this.snapshotToken = null;
         this.snapshotSessionId = null;
         this.snapshotEmployeeName = null;
+        this.snapshotUrl = null;
+        this.snapshotCapturedAt = null;
+        this.snapshotType = null;
         this.snapshotStatus = 'Live snapshots stopped.';
     },
     async startLiveMedia(sessionId, employeeName = null) {

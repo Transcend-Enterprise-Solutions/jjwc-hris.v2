@@ -29,6 +29,14 @@
     liveStatus: 'Idle',
     liveSessionId: null,
     liveEmployeeName: null,
+    snapshotSessionId: null,
+    snapshotEmployeeName: null,
+    snapshotToken: null,
+    snapshotStatus: 'Select an employee to start live snapshots.',
+    snapshotUrl: null,
+    snapshotCapturedAt: null,
+    snapshotType: null,
+    snapshotPollTimer: null,
     mediaPeer: null,
     mediaToken: null,
     mediaStatus: 'Idle',
@@ -48,6 +56,17 @@
             '"': '&quot;',
             "'": '&#39;',
         }[char]));
+    },
+    async selectMonitoringSession(sessionId, tabName = null) {
+        if (tabName) {
+            this.tab = tabName;
+        }
+
+        try {
+            await this.wire.selectMonitoringSession(sessionId);
+        } catch {
+            // Keep the screen controls responsive while Livewire refreshes.
+        }
     },
     selectGpsSession(sessionId) {
         this.gpsSelectedSessionId = sessionId;
@@ -324,6 +343,72 @@
         this.liveEmployeeName = null;
         this.liveStatus = 'Idle';
     },
+    async startLiveSnapshots(sessionId, employeeName = null) {
+        this.stopLocalLiveScreen(false);
+        this.stopLiveSnapshots(false);
+        await this.selectMonitoringSession(sessionId, 'screens');
+        await this.$nextTick();
+
+        this.snapshotSessionId = sessionId;
+        this.snapshotEmployeeName = employeeName;
+        this.snapshotStatus = 'Starting live snapshots...';
+
+        let request = null;
+
+        try {
+            request = await this.wire.startLiveSnapshots(sessionId);
+        } catch (error) {
+            this.snapshotStatus = error?.message || 'Unable to start live snapshots.';
+            return;
+        }
+
+        if (!request?.token) {
+            this.snapshotStatus = 'Unable to start live snapshots for this employee.';
+            return;
+        }
+
+        this.snapshotToken = request.token;
+        this.applySnapshot(request.snapshot);
+        this.snapshotStatus = 'Live snapshots active.';
+        await this.refreshLiveSnapshot();
+        this.snapshotPollTimer = setInterval(() => this.refreshLiveSnapshot(), Math.max(3, request.intervalSeconds || 5) * 1000);
+    },
+    applySnapshot(snapshot) {
+        if (!snapshot?.url) {
+            return;
+        }
+
+        const separator = snapshot.url.includes('?') ? '&' : '?';
+        this.snapshotUrl = `${snapshot.url}${separator}v=${Date.now()}`;
+        this.snapshotCapturedAt = snapshot.capturedAt || null;
+        this.snapshotType = snapshot.captureType || null;
+    },
+    async refreshLiveSnapshot() {
+        if (!this.snapshotSessionId) return;
+
+        try {
+            const snapshot = await this.wire.getLatestScreenSnapshot(this.snapshotSessionId);
+            this.applySnapshot(snapshot);
+            this.snapshotStatus = snapshot?.url ? 'Live snapshots active.' : 'Waiting for first screen frame...';
+        } catch {
+            this.snapshotStatus = 'Unable to refresh the latest screen frame.';
+        }
+    },
+    stopLiveSnapshots(report = true) {
+        if (this.snapshotPollTimer) {
+            clearInterval(this.snapshotPollTimer);
+        }
+
+        if (report && this.snapshotSessionId) {
+            this.wire.stopLiveSnapshots(this.snapshotSessionId);
+        }
+
+        this.snapshotPollTimer = null;
+        this.snapshotToken = null;
+        this.snapshotSessionId = null;
+        this.snapshotEmployeeName = null;
+        this.snapshotStatus = 'Live snapshots stopped.';
+    },
     async startLiveMedia(sessionId, employeeName = null) {
         if (!window.RTCPeerConnection) {
             this.mediaStatus = 'WebRTC is not supported by this browser.';
@@ -565,12 +650,12 @@
                                         <td class="px-5 py-4 text-center text-sm font-medium whitespace-nowrap">
                                             <button
                                                 type="button"
-                                                @click="tab = 'screens'; startLiveScreen({{ $session->id }}, @js($this->employeeDisplayName($session->user)))"
+                                                @click="startLiveSnapshots({{ $session->id }}, @js($this->employeeDisplayName($session->user)))"
                                                 class="rounded-md px-3 py-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10"
-                                                title="View live screen"
+                                                title="Start shared-hosting live snapshots"
                                             >
                                                 <i class="bi bi-display"></i>
-                                                <span class="ml-1 text-xs">View</span>
+                                                <span class="ml-1 text-xs">Live</span>
                                             </button>
                                             <button
                                                 type="button"
@@ -617,7 +702,7 @@
                     <div class="flex items-start justify-between gap-3">
                         <div>
                             <p class="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Choose employee</p>
-                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Open a live screen or request camera and microphone for one active employee at a time.</p>
+                            <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Use live snapshots for shared hosting, or request camera and microphone when needed.</p>
                         </div>
                     </div>
 
@@ -639,10 +724,10 @@
                                 <div class="mt-3 flex flex-wrap gap-2">
                                     <button
                                         type="button"
-                                        @click="startLiveScreen({{ $session->id }}, @js($this->employeeDisplayName($session->user)))"
+                                        @click="startLiveSnapshots({{ $session->id }}, @js($this->employeeDisplayName($session->user)))"
                                         class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
                                     >
-                                        Open screen
+                                        Live snapshots
                                     </button>
                                     <button
                                         type="button"
@@ -678,13 +763,19 @@
                 <div class="rounded-xl border border-slate-200 bg-slate-950 p-4 dark:border-slate-700">
                     <div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                            <p class="text-xs font-semibold uppercase text-emerald-300">Live stream</p>
-                            <p class="mt-1 text-lg font-bold text-white" x-text="liveEmployeeName || 'Select an employee to view'"></p>
-                            <p class="text-sm text-slate-300" x-text="liveStatus"></p>
+                            <p class="text-xs font-semibold uppercase text-emerald-300">Shared-hosting screen view</p>
+                            <p class="mt-1 text-lg font-bold text-white" x-text="snapshotEmployeeName || liveEmployeeName || 'Select an employee to view'"></p>
+                            <p class="text-sm text-slate-300" x-text="snapshotStatus || liveStatus"></p>
                         </div>
                         <div class="flex flex-wrap gap-2">
+                            <button type="button" x-show="snapshotSessionId" @click="refreshLiveSnapshot()" class="rounded-md bg-emerald-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400">
+                                Refresh frame
+                            </button>
+                            <button type="button" x-show="snapshotSessionId" @click="stopLiveSnapshots()" class="rounded-md bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600">
+                                Stop snapshots
+                            </button>
                             <button type="button" @click="stopLocalLiveScreen()" class="rounded-md bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700">
-                                Stop live view
+                                Stop peer video
                             </button>
                             <button type="button" @click="stopLocalLiveMedia()" class="rounded-md bg-slate-700 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-600">
                                 Stop cam/mic
@@ -693,7 +784,26 @@
                     </div>
 
                     <div class="relative overflow-hidden rounded-xl border border-slate-800 bg-black">
-                        <video x-ref="liveScreenVideo" autoplay playsinline controls muted class="aspect-video max-h-[68vh] w-full bg-black object-contain"></video>
+                        <div class="relative aspect-video max-h-[68vh] w-full bg-black">
+                            <img
+                                x-show="snapshotUrl"
+                                :src="snapshotUrl"
+                                alt="Latest employee screen snapshot"
+                                class="h-full w-full object-contain"
+                            >
+                            <video x-show="!snapshotUrl" x-ref="liveScreenVideo" autoplay playsinline controls muted class="h-full w-full bg-black object-contain"></video>
+                            <div x-show="!snapshotUrl && !livePeer" class="absolute inset-0 flex items-center justify-center bg-slate-950">
+                                <div class="max-w-sm px-6 text-center">
+                                    <p class="text-sm font-semibold text-white">No screen frame yet</p>
+                                    <p class="mt-2 text-xs leading-5 text-slate-400">Start live snapshots for an employee. The first frame appears after the employee browser captures the screen.</p>
+                                </div>
+                            </div>
+                            <div x-show="snapshotUrl" class="absolute bottom-3 left-3 rounded-md bg-black/70 px-3 py-2 text-xs text-white">
+                                <span x-text="snapshotCapturedAt || 'Latest frame'"></span>
+                                <span x-show="snapshotType"> · </span>
+                                <span x-show="snapshotType" x-text="snapshotType"></span>
+                            </div>
+                        </div>
 
                         <div
                             x-show="mediaPeer || mediaToken"
@@ -712,7 +822,7 @@
                     </div>
 
                     <p class="mt-3 text-xs text-slate-400">
-                        Live screen view uses the employee's approved browser share. Camera and microphone appear as an overlay when available.
+                        Live snapshots use regular HTTPS uploads, so they work on shared hosting. Peer video is still available in code, but snapshots are the reliable default.
                     </p>
 
                     <div class="mt-5 rounded-xl border border-slate-800 bg-slate-900/80 p-4">
@@ -736,7 +846,7 @@
 
                         <div class="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                             @forelse ($selectedMonitoringSession?->screenshots ?? [] as $screenshot)
-                                @php $screenshotUrl = \Illuminate\Support\Facades\Storage::disk('public')->url($screenshot->path); @endphp
+                                @php $screenshotUrl = '/storage/' . ltrim($screenshot->path, '/'); @endphp
                                 <a href="{{ $screenshotUrl }}" target="_blank" class="group overflow-hidden rounded-lg border border-slate-700 bg-black">
                                     <img src="{{ $screenshotUrl }}" alt="WFH screen snapshot" class="aspect-video w-full object-cover opacity-90 transition group-hover:opacity-100">
                                     <div class="border-t border-slate-800 px-3 py-2">

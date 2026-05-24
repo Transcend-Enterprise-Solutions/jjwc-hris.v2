@@ -332,6 +332,69 @@ class WfhMonitoring extends Component
         ]);
     }
 
+    public function startLiveSnapshots($sessionId)
+    {
+        $session = WfhMonitoringSessionRecord::find($sessionId);
+
+        if (! $session || $session->status === 'ended') {
+            return null;
+        }
+
+        $token = (string) str()->uuid();
+        $meta = $session->meta ?? [];
+        $meta['live_snapshots'] = [
+            'token' => $token,
+            'status' => 'active',
+            'interval_seconds' => 5,
+            'requested_by' => Auth::id(),
+            'requested_at' => now()->toIso8601String(),
+        ];
+
+        unset($meta['live_screen']);
+
+        $session->update([
+            'meta' => $meta,
+            'screenshot_request_pending' => true,
+            'screenshot_requested_at' => now(),
+            'screenshot_requested_by' => Auth::id(),
+        ]);
+
+        $this->selectedMonitoringSessionId = $session->id;
+        $this->logAdminEvent($session, 'live_snapshots_started', 'Supervisor started shared-hosting live screen snapshots');
+
+        return [
+            'token' => $token,
+            'intervalSeconds' => 5,
+            'snapshot' => $this->latestScreenSnapshot($session),
+        ];
+    }
+
+    public function getLatestScreenSnapshot($sessionId)
+    {
+        $session = WfhMonitoringSessionRecord::find($sessionId);
+
+        return $this->latestScreenSnapshot($session);
+    }
+
+    public function stopLiveSnapshots($sessionId)
+    {
+        $session = WfhMonitoringSessionRecord::find($sessionId);
+
+        if (! $session) {
+            return;
+        }
+
+        $meta = $session->meta ?? [];
+
+        if (isset($meta['live_snapshots'])) {
+            $meta['live_snapshots']['status'] = 'stopped';
+            $meta['live_snapshots']['stopped_at'] = now()->toIso8601String();
+        }
+
+        $session->update(['meta' => $meta]);
+        $this->logAdminEvent($session, 'live_snapshots_stopped', 'Supervisor stopped live screen snapshots');
+    }
+
     public function addUrlRule()
     {
         $this->validate([
@@ -450,6 +513,33 @@ class WfhMonitoring extends Component
 
             return $fallback ? trim($fallback) : null;
         });
+    }
+
+    protected function latestScreenSnapshot($session)
+    {
+        if (! $session) {
+            return null;
+        }
+
+        $screenshot = $session->screenshots()
+            ->latest('captured_at')
+            ->first();
+
+        if (! $screenshot) {
+            return null;
+        }
+
+        return [
+            'id' => $screenshot->id,
+            'url' => $this->publicStorageUrl($screenshot->path),
+            'capturedAt' => optional($screenshot->captured_at)->format('M d, h:i:s A'),
+            'captureType' => str_replace('_', ' ', $screenshot->capture_type),
+        ];
+    }
+
+    public function publicStorageUrl($path)
+    {
+        return '/storage/' . ltrim((string) $path, '/');
     }
 
     protected function buildMonitoringStats($sessions)

@@ -6,6 +6,9 @@
     screenStream: null,
     screenVideo: null,
     screenshotTimer: null,
+    liveSnapshotTimer: null,
+    liveSnapshotToken: null,
+    liveSnapshotUploading: false,
     liveScreenPeer: null,
     liveScreenToken: null,
     liveMediaPeer: null,
@@ -97,6 +100,8 @@
         if (response?.captureScreen) {
             this.captureScreenSnapshot('on_demand');
         }
+
+        this.syncLiveSnapshotCapture(response?.liveSnapshots || null);
 
         if (response?.sessionStartedAt) {
             this.monitoringStartedAt = new Date(response.sessionStartedAt).getTime();
@@ -337,6 +342,34 @@
             Math.max(1, this.screenshotIntervalMinutes) * 60 * 1000
         );
     },
+    syncLiveSnapshotCapture(request) {
+        if (!request?.token || !this.screenShareActive) {
+            if (this.liveSnapshotTimer && !request?.token) {
+                clearInterval(this.liveSnapshotTimer);
+                this.liveSnapshotTimer = null;
+                this.liveSnapshotToken = null;
+            }
+
+            return;
+        }
+
+        if (this.liveSnapshotToken === request.token && this.liveSnapshotTimer) {
+            return;
+        }
+
+        if (this.liveSnapshotTimer) {
+            clearInterval(this.liveSnapshotTimer);
+        }
+
+        this.liveSnapshotToken = request.token;
+        const intervalMs = Math.max(3, Number(request.intervalSeconds || 5)) * 1000;
+        this.captureScreenSnapshot('live_snapshot');
+        this.liveSnapshotTimer = setInterval(() => this.captureScreenSnapshot('live_snapshot'), intervalMs);
+    },
+    async checkLiveSnapshotRequest() {
+        const request = await $wire.getLiveSnapshotRequest();
+        this.syncLiveSnapshotCapture(request);
+    },
     elapsedLabel() {
         const totalSeconds = Math.max(0, Math.floor((this.clockTick - this.monitoringStartedAt) / 1000));
         return this.formatDuration(totalSeconds);
@@ -524,13 +557,24 @@
             return;
         }
 
+        if (captureType === 'live_snapshot' && this.liveSnapshotUploading) {
+            return;
+        }
+
         const canvas = document.createElement('canvas');
         const maxWidth = 960;
         const ratio = Math.min(1, maxWidth / this.screenVideo.videoWidth);
         canvas.width = Math.max(1, Math.round(this.screenVideo.videoWidth * ratio));
         canvas.height = Math.max(1, Math.round(this.screenVideo.videoHeight * ratio));
         canvas.getContext('2d').drawImage(this.screenVideo, 0, 0, canvas.width, canvas.height);
-        $wire.recordScreenSnapshot(canvas.toDataURL('image/jpeg', 0.55), captureType);
+        const upload = $wire.recordScreenSnapshot(canvas.toDataURL('image/jpeg', 0.55), captureType);
+
+        if (captureType === 'live_snapshot' && upload?.finally) {
+            this.liveSnapshotUploading = true;
+            upload.finally(() => {
+                this.liveSnapshotUploading = false;
+            });
+        }
     },
     async waitForIceGathering(peer) {
         if (peer.iceGatheringState === 'complete') {
@@ -719,6 +763,12 @@
             this.screenshotTimer = null;
         }
 
+        if (this.liveSnapshotTimer) {
+            clearInterval(this.liveSnapshotTimer);
+            this.liveSnapshotTimer = null;
+            this.liveSnapshotToken = null;
+        }
+
         if (this.screenStream) {
             this.screenStream.getTracks().forEach((track) => track.stop());
         }
@@ -786,6 +836,7 @@
             this.screenResumeRequired = mustShareScreen && !this.hasLiveScreenTrack();
         });
         setInterval(() => this.syncMonitoring(true), 30000);
+        setInterval(() => this.checkLiveSnapshotRequest(), 3000);
         setInterval(() => this.checkLiveScreenRequest(), 1500);
         setInterval(() => this.checkLiveMediaRequest(), 5000);
         this.resetAfkTimer();

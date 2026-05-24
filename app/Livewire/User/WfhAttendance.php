@@ -294,7 +294,7 @@ class WfhAttendance extends Component
             ->first();
 
         if ($existingPunch) {
-            $this->syncMonitoringWithPunch($verifyType);
+            $this->refreshMonitoringState();
             $this->updateButtonStates();
             $this->showConfirmation = false;
 
@@ -562,6 +562,7 @@ class WfhAttendance extends Component
 
         return [
             'captureScreen' => $captureScreen,
+            'liveSnapshots' => $this->getLiveSnapshotRequest(),
             'afkThresholdMinutes' => (int) $session->afk_threshold_minutes,
             'screenshotIntervalMinutes' => (int) $session->screenshot_interval_minutes,
             'locationIntervalMinutes' => (int) $session->location_interval_minutes,
@@ -626,20 +627,53 @@ class WfhAttendance extends Component
 
         Storage::disk('public')->put($path, $binary);
 
+        $normalizedCaptureType = in_array($captureType, ['periodic', 'on_demand', 'time_in', 'live_snapshot'], true) ? $captureType : 'periodic';
+
         WfhMonitoringScreenshot::create([
             'wfh_monitoring_session_id' => $session->id,
             'user_id' => Auth::id(),
             'path' => $path,
-            'capture_type' => in_array($captureType, ['periodic', 'on_demand', 'time_in'], true) ? $captureType : 'periodic',
+            'capture_type' => $normalizedCaptureType,
             'mime_type' => $mime,
             'size_bytes' => strlen($binary),
             'captured_at' => now(),
         ]);
 
+        if ($normalizedCaptureType === 'live_snapshot') {
+            $oldSnapshots = WfhMonitoringScreenshot::query()
+                ->where('wfh_monitoring_session_id', $session->id)
+                ->where('capture_type', 'live_snapshot')
+                ->latest('captured_at')
+                ->skip(120)
+                ->take(50)
+                ->get();
+
+            foreach ($oldSnapshots as $oldSnapshot) {
+                Storage::disk('public')->delete($oldSnapshot->path);
+                $oldSnapshot->delete();
+            }
+        }
+
         $this->logMonitoringEvent($session, 'screenshot_captured', 'Screen snapshot captured from active screen share', [
             'path' => $path,
-            'capture_type' => $captureType,
+            'capture_type' => $normalizedCaptureType,
         ]);
+    }
+
+    public function getLiveSnapshotRequest()
+    {
+        $session = $this->getOpenMonitoringSession();
+        $meta = $session?->meta ?? [];
+        $liveSnapshots = $meta['live_snapshots'] ?? null;
+
+        if (! $session || ! $liveSnapshots || ($liveSnapshots['status'] ?? null) !== 'active') {
+            return null;
+        }
+
+        return [
+            'token' => $liveSnapshots['token'] ?? null,
+            'intervalSeconds' => max(3, min(30, (int) ($liveSnapshots['interval_seconds'] ?? 5))),
+        ];
     }
 
     public function getLiveScreenRequest()
@@ -811,7 +845,7 @@ class WfhAttendance extends Component
         }
 
         if ($verifyType === 'Morning In') {
-            $this->startMonitoringSession('Monitoring started from Time In');
+            $this->startMonitoringSession('Monitoring started from Time In', true);
             return;
         }
 
@@ -830,17 +864,57 @@ class WfhAttendance extends Component
         }
     }
 
-    protected function startMonitoringSession($label)
+    protected function startMonitoringSession($label, bool $resetTimer = false)
     {
         $session = $this->getOpenMonitoringSession();
 
         if ($session) {
-            $session->update([
+            $now = now();
+            $meta = $session->meta ?? [];
+
+            if ($resetTimer) {
+                unset($meta['live_screen'], $meta['live_media'], $meta['live_snapshots']);
+                $meta['timer_reset_at'] = $now->toIso8601String();
+                $meta['timer_reset_reason'] = $label;
+            }
+
+            $updates = [
                 'status' => 'active',
                 'work_status' => 'WFH',
-                'last_activity_at' => now(),
+                'last_activity_at' => $now,
                 'visibility_state' => 'visible',
-            ]);
+                'meta' => array_merge($meta, [
+                    'last_online_accounted_at' => $now->toIso8601String(),
+                ]),
+            ];
+
+            if ($resetTimer) {
+                $updates = array_merge($updates, [
+                    'started_at' => $now,
+                    'ended_at' => null,
+                    'total_monitored_minutes' => 0,
+                    'online_seconds' => 0,
+                    'offline_alerted_at' => null,
+                    'afk_started_at' => null,
+                    'afk_responded_at' => null,
+                    'afk_response' => null,
+                    'afk_excused' => false,
+                    'afk_excuse_notes' => null,
+                    'activity_count' => 1,
+                    'active_seconds' => 0,
+                    'idle_seconds' => 0,
+                    'keystroke_count' => 0,
+                    'mouse_activity_count' => 0,
+                    'click_count' => 0,
+                    'touch_count' => 0,
+                    'activity_score' => 0,
+                    'screenshot_request_pending' => false,
+                    'screenshot_requested_at' => null,
+                    'screenshot_requested_by' => null,
+                ]);
+            }
+
+            $session->update($updates);
 
             $this->logMonitoringEvent($session, 'session_resumed', $label);
             $this->refreshMonitoringState();
@@ -868,6 +942,7 @@ class WfhAttendance extends Component
                 'source' => 'wfh_attendance',
                 'last_latitude' => $this->latitude,
                 'last_longitude' => $this->longitude,
+                'last_online_accounted_at' => now()->toIso8601String(),
             ],
         ]);
 

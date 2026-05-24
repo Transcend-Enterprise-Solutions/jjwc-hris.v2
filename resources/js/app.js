@@ -24,6 +24,14 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
   liveStatus: 'Idle',
   liveSessionId: null,
   liveEmployeeName: null,
+  snapshotSessionId: null,
+  snapshotEmployeeName: null,
+  snapshotToken: null,
+  snapshotStatus: 'Select an employee to start live snapshots.',
+  snapshotUrl: null,
+  snapshotCapturedAt: null,
+  snapshotType: null,
+  snapshotPollTimer: null,
   mediaPeer: null,
   mediaToken: null,
   mediaStatus: 'Idle',
@@ -304,6 +312,72 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
     this.livePeer = peer;
     this.liveStatus = 'Waiting for employee browser to answer...';
     this.pollLiveAnswer();
+  },
+  async startLiveSnapshots(sessionId, employeeName = null) {
+    this.stopLocalLiveScreen(false);
+    this.stopLiveSnapshots(false);
+    await this.selectMonitoringSession(sessionId, 'screens');
+    await this.$nextTick();
+
+    this.snapshotSessionId = sessionId;
+    this.snapshotEmployeeName = employeeName;
+    this.snapshotStatus = 'Starting live snapshots...';
+
+    let request = null;
+
+    try {
+      request = await this.wire.startLiveSnapshots(sessionId);
+    } catch (error) {
+      this.snapshotStatus = error?.message || 'Unable to start live snapshots.';
+      return;
+    }
+
+    if (!request?.token) {
+      this.snapshotStatus = 'Unable to start live snapshots for this employee.';
+      return;
+    }
+
+    this.snapshotToken = request.token;
+    this.applySnapshot(request.snapshot);
+    this.snapshotStatus = 'Live snapshots active.';
+    await this.refreshLiveSnapshot();
+    this.snapshotPollTimer = setInterval(() => this.refreshLiveSnapshot(), Math.max(3, request.intervalSeconds || 5) * 1000);
+  },
+  applySnapshot(snapshot) {
+    if (!snapshot?.url) {
+      return;
+    }
+
+    const separator = snapshot.url.includes('?') ? '&' : '?';
+    this.snapshotUrl = `${snapshot.url}${separator}v=${Date.now()}`;
+    this.snapshotCapturedAt = snapshot.capturedAt || null;
+    this.snapshotType = snapshot.captureType || null;
+  },
+  async refreshLiveSnapshot() {
+    if (!this.snapshotSessionId) return;
+
+    try {
+      const snapshot = await this.wire.getLatestScreenSnapshot(this.snapshotSessionId);
+      this.applySnapshot(snapshot);
+      this.snapshotStatus = snapshot?.url ? 'Live snapshots active.' : 'Waiting for first screen frame...';
+    } catch {
+      this.snapshotStatus = 'Unable to refresh the latest screen frame.';
+    }
+  },
+  stopLiveSnapshots(report = true) {
+    if (this.snapshotPollTimer) {
+      clearInterval(this.snapshotPollTimer);
+    }
+
+    if (report && this.snapshotSessionId) {
+      this.wire.stopLiveSnapshots(this.snapshotSessionId);
+    }
+
+    this.snapshotPollTimer = null;
+    this.snapshotToken = null;
+    this.snapshotSessionId = null;
+    this.snapshotEmployeeName = null;
+    this.snapshotStatus = 'Live snapshots stopped.';
   },
   async pollLiveAnswer() {
     if (!this.liveSessionId || !this.liveToken || !this.livePeer) return;

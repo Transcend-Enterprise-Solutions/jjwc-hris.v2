@@ -40,6 +40,7 @@
     afkThresholdMinutes: @js($afkThresholdMinutes),
     lastLocationReadAt: 0,
     lastKnownPosition: {},
+    punchSubmitting: false,
     async readPosition() {
         if (!navigator.geolocation) {
             return {};
@@ -57,7 +58,7 @@
             );
         });
     },
-    async syncMonitoring(force = false) {
+    async syncMonitoring(force = false, options = {}) {
         const now = Date.now();
 
         if (!force && now - this.lastMonitoringPing < 10000) {
@@ -65,7 +66,7 @@
         }
 
         this.lastMonitoringPing = now;
-        const position = await this.getMonitoringPosition();
+        const position = options.skipLocation ? this.lastKnownPosition : await this.getMonitoringPosition();
         const response = await $wire.recordMonitoringHeartbeat(
             document.title,
             window.location.href,
@@ -245,6 +246,12 @@
             return false;
         }
 
+        if (this.isScreenShareLive()) {
+            this.screenShareActive = true;
+            this.screenResumeRequired = false;
+            return true;
+        }
+
         if (this.screenStream) {
             if (this.hasLiveScreenTrack()) {
                 this.screenShareActive = true;
@@ -252,7 +259,7 @@
                 this.monitoringRuntime().screenStream = this.screenStream;
                 this.monitoringRuntime().screenShareActive = true;
                 this.updateMonitoringPopout();
-                await this.syncMonitoring(true);
+                this.syncMonitoring(true, { skipLocation: true });
                 return true;
             }
 
@@ -299,7 +306,7 @@
             this.monitoringRuntime().screenShareActive = true;
             this.attachScreenVideo();
             $wire.recordMonitoringSignal('screen_share_started', 'Employee granted full-screen share permission', { display_surface: displaySurface ?? 'unknown' });
-            await this.syncMonitoring(true);
+            this.syncMonitoring(true, { skipLocation: true });
             this.captureScreenSnapshot('time_in');
             this.scheduleScreenshots();
             this.checkLiveScreenRequest();
@@ -735,23 +742,33 @@
         }
     },
     async confirmPunchWithMonitoring(verifyType) {
-        if (verifyType === 'Morning In') {
-            const screenShared = await this.startScreenShare();
+        if (this.punchSubmitting) {
+            return;
+        }
 
-            if (!screenShared) {
-                return;
+        this.punchSubmitting = true;
+
+        try {
+            if (verifyType === 'Morning In') {
+                const screenShared = this.isScreenShareLive() || await this.startScreenShare();
+
+                if (!screenShared) {
+                    return;
+                }
             }
-        }
 
-        if (verifyType === 'Afternoon Out') {
-            this.stopScreenShare();
-        }
+            if (verifyType === 'Afternoon Out') {
+                this.stopScreenShare();
+            }
 
-        await $wire.confirmYes();
+            await $wire.confirmYes();
 
-        if (verifyType === 'Morning In') {
-            await this.syncMonitoring(true);
-            this.captureScreenSnapshot('time_in');
+            if (verifyType === 'Morning In') {
+                this.syncMonitoring(true);
+                this.captureScreenSnapshot('time_in');
+            }
+        } finally {
+            this.punchSubmitting = false;
         }
     },
     init() {
@@ -1513,8 +1530,10 @@
                             <!-- Action Buttons -->
                             <div class="mt-6 flex justify-end space-x-4">
                                 <button type="button" @click="confirmPunchWithMonitoring(@js($verifyType))"
-                                    class="px-4 py-2 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-800">
-                                    Yes
+                                    :disabled="punchSubmitting"
+                                    class="px-4 py-2 rounded-md bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:cursor-wait disabled:opacity-60 dark:focus:ring-offset-gray-800">
+                                    <span x-show="!punchSubmitting">Yes</span>
+                                    <span x-show="punchSubmitting" x-cloak>Saving...</span>
                                 </button>
                                 <button wire:click="closeConfirmation"
                                     class="px-4 py-2 rounded-md bg-gray-700 hover:bg-gray-800 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 dark:focus:ring-offset-gray-800">

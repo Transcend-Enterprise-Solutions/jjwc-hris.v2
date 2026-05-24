@@ -286,6 +286,26 @@ class WfhAttendance extends Component
     {
         $user = Auth::user();
         $punchTime = Carbon::now();
+        $existingPunch = TransactionWFH::where('emp_code', $user->emp_code)
+            ->where('punch_state_display', 'WFH')
+            ->where('verify_type_display', $verifyType)
+            ->whereDate('punch_time', Carbon::today())
+            ->oldest('punch_time')
+            ->first();
+
+        if ($existingPunch) {
+            $this->syncMonitoringWithPunch($verifyType);
+            $this->updateButtonStates();
+            $this->showConfirmation = false;
+
+            $this->dispatch('swal', [
+                'title' => "{$verifyType} was already recorded.",
+                'text' => 'Duplicate punch was ignored.',
+                'icon' => 'info',
+            ]);
+
+            return;
+        }
 
         TransactionWFH::create([
             'emp_code' => $user->emp_code,

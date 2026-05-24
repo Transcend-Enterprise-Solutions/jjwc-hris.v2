@@ -476,15 +476,10 @@ class WfhMonitoring extends Component
 
         return [
             'id' => $screenshot->id,
-            'url' => $this->publicStorageUrl($screenshot->path),
+            'url' => route('wfh-monitoring.screenshot', $screenshot),
             'capturedAt' => optional($screenshot->captured_at)->format('M d, h:i:s A'),
             'captureType' => str_replace('_', ' ', $screenshot->capture_type),
         ];
-    }
-
-    public function publicStorageUrl($path)
-    {
-        return '/storage/' . ltrim((string) $path, '/');
     }
 
     protected function buildMonitoringStats($sessions)

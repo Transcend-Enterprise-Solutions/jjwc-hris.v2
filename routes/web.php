@@ -23,6 +23,7 @@ use App\Livewire\User\PersonalDataSheet;
 use App\Livewire\User\WfhSched as UserWfhSched;
 use App\Livewire\User\WorkExperienceSheet;
 use App\Models\CaseTracking;
+use App\Models\WfhMonitoringScreenshot;
 use App\Services\RouteService;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
@@ -146,6 +147,23 @@ Route::get('/download-document/{path}/{name}', function ($path, $name) {
         abort(500, 'Error downloading file: '.$e->getMessage());
     }
 })->name('download.document')->middleware('auth');
+
+Route::get('/wfh-monitoring/screenshot/{screenshot}', function (WfhMonitoringScreenshot $screenshot) {
+    $user = auth()->user();
+    $adminRoles = ['sa', 'hr', 'sv', 'pa'];
+
+    if (! $user || ((int) $user->id !== (int) $screenshot->user_id && ! in_array($user->user_role, $adminRoles, true))) {
+        abort(403);
+    }
+
+    if (! Storage::disk('public')->exists($screenshot->path)) {
+        abort(404);
+    }
+
+    return Storage::disk('public')->response($screenshot->path, null, [
+        'Cache-Control' => 'private, max-age=10',
+    ]);
+})->name('wfh-monitoring.screenshot')->middleware('auth');
 
 // Route::get('/signature/{filename}', function ($filename) {
 //     $path = 'signatures/' . $filename;  // Note: plural "signatures"

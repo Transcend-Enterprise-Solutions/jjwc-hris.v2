@@ -792,6 +792,7 @@
                     </div>
 
                     <div class="relative overflow-hidden rounded-xl border border-slate-800 bg-black">
+                        @php $latestPanelSnapshot = $selectedMonitoringSession?->screenshots?->first(); @endphp
                         <div class="relative aspect-video max-h-[68vh] w-full bg-black">
                             <img
                                 x-show="snapshotUrl"
@@ -799,8 +800,16 @@
                                 alt="Latest employee screen snapshot"
                                 class="h-full w-full object-contain"
                             >
-                            <video x-show="!snapshotUrl" x-ref="liveScreenVideo" autoplay playsinline controls muted class="h-full w-full bg-black object-contain"></video>
-                            <div x-show="!snapshotUrl && !livePeer" class="absolute inset-0 flex items-center justify-center bg-slate-950">
+                            @if ($latestPanelSnapshot)
+                                <img
+                                    x-show="!snapshotUrl"
+                                    src="{{ route('wfh-monitoring.screenshot', $latestPanelSnapshot) }}"
+                                    alt="Latest saved WFH screen snapshot"
+                                    class="h-full w-full object-contain"
+                                >
+                            @endif
+                            <video x-show="!snapshotUrl && {{ $latestPanelSnapshot ? 'false' : 'true' }}" x-ref="liveScreenVideo" autoplay playsinline controls muted class="h-full w-full bg-black object-contain"></video>
+                            <div x-show="!snapshotUrl && !livePeer && {{ $latestPanelSnapshot ? 'false' : 'true' }}" class="absolute inset-0 flex items-center justify-center bg-slate-950">
                                 <div class="max-w-sm px-6 text-center">
                                     <p class="text-sm font-semibold text-white">No screen frame yet</p>
                                     <p class="mt-2 text-xs leading-5 text-slate-400">Keep the employee WFH Attendance page open in another browser, profile, or incognito session. The first frame appears after that page captures and uploads the screen.</p>
@@ -811,6 +820,11 @@
                                 <span x-show="snapshotType"> · </span>
                                 <span x-show="snapshotType" x-text="snapshotType"></span>
                             </div>
+                            @if ($latestPanelSnapshot)
+                                <div x-show="!snapshotUrl" class="absolute bottom-3 left-3 rounded-md bg-black/70 px-3 py-2 text-xs text-white">
+                                    Latest saved frame · {{ optional($latestPanelSnapshot->captured_at)->format('M d, h:i:s A') }}
+                                </div>
+                            @endif
                         </div>
 
                         <div
@@ -854,7 +868,7 @@
 
                         <div class="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
                             @forelse ($selectedMonitoringSession?->screenshots ?? [] as $screenshot)
-                                @php $screenshotUrl = '/storage/' . ltrim($screenshot->path, '/'); @endphp
+                                @php $screenshotUrl = route('wfh-monitoring.screenshot', $screenshot); @endphp
                                 <a href="{{ $screenshotUrl }}" target="_blank" class="group overflow-hidden rounded-lg border border-slate-700 bg-black">
                                     <img src="{{ $screenshotUrl }}" alt="WFH screen snapshot" class="aspect-video w-full object-cover opacity-90 transition group-hover:opacity-100">
                                     <div class="border-t border-slate-800 px-3 py-2">

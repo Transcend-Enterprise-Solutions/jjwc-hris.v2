@@ -392,7 +392,9 @@
         try {
             const snapshot = await this.wire.getLatestScreenSnapshot(this.snapshotSessionId);
             this.applySnapshot(snapshot);
-            this.snapshotStatus = snapshot?.url ? 'Live snapshots active.' : 'Waiting for first screen frame...';
+            this.snapshotStatus = snapshot?.url
+                ? 'Live snapshots active.'
+                : 'Waiting for employee WFH Attendance page to upload a frame...';
         } catch {
             this.snapshotStatus = 'Unable to refresh the latest screen frame.';
         }
@@ -801,7 +803,7 @@
                             <div x-show="!snapshotUrl && !livePeer" class="absolute inset-0 flex items-center justify-center bg-slate-950">
                                 <div class="max-w-sm px-6 text-center">
                                     <p class="text-sm font-semibold text-white">No screen frame yet</p>
-                                    <p class="mt-2 text-xs leading-5 text-slate-400">Start live snapshots for an employee. The first frame appears after the employee browser captures the screen.</p>
+                                    <p class="mt-2 text-xs leading-5 text-slate-400">Keep the employee WFH Attendance page open in another browser, profile, or incognito session. The first frame appears after that page captures and uploads the screen.</p>
                                 </div>
                             </div>
                             <div x-show="snapshotUrl" class="absolute bottom-3 left-3 rounded-md bg-black/70 px-3 py-2 text-xs text-white">

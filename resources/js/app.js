@@ -362,7 +362,9 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
     try {
       const snapshot = await this.wire.getLatestScreenSnapshot(this.snapshotSessionId);
       this.applySnapshot(snapshot);
-      this.snapshotStatus = snapshot?.url ? 'Live snapshots active.' : 'Waiting for first screen frame...';
+      this.snapshotStatus = snapshot?.url
+        ? 'Live snapshots active.'
+        : 'Waiting for employee WFH Attendance page to upload a frame...';
     } catch {
       this.snapshotStatus = 'Unable to refresh the latest screen frame.';
     }

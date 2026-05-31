@@ -20,7 +20,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Styles -->
-    <link rel="stylesheet" href="{{ asset('build/assets/app-JvcQ0qKH.css') }}">
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 
     @livewireStyles
     <style>
@@ -142,7 +142,6 @@
         </div>
     </main>
 
-    <script defer src="{{ asset('build/assets/app-DEoBNXZR.js') }}"></script>
     @livewireScripts
     <script>
         document.addEventListener('DOMContentLoaded', function() {

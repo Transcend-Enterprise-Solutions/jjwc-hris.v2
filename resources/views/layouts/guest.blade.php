@@ -14,7 +14,7 @@
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&display=swap" rel="stylesheet" />
 
         <!-- Styles -->
-        <link rel="stylesheet" href="{{ asset('build/assets/app-JvcQ0qKH.css') }}">
+        @vite(['resources/css/app.css', 'resources/js/app.js'])
 
          @livewireStyles
 
@@ -74,7 +74,6 @@
 
         </main>
 
-        <script defer src="{{ asset('build/assets/app-DEoBNXZR.js') }}"></script>
         @livewireScripts
     </body>
 </html>

@@ -102,17 +102,25 @@
             </div>
           </div>
 
+          <div class="wfh-wall__feed-status">
+            <article :class="{ connected: liveConnected }">
+              <span><i class="bi bi-display"></i> Screen</span>
+              <strong>{{ liveConnected ? 'Live now' : 'Auto opening' }}</strong>
+              <small>{{ liveStatus }}</small>
+            </article>
+            <article :class="{ connected: liveMediaConnected }">
+              <span><i class="bi bi-camera-video"></i> Camera / mic</span>
+              <strong>{{ liveMediaConnected ? 'Live now' : 'Auto opening' }}</strong>
+              <small>{{ liveMediaStatus }}</small>
+            </article>
+          </div>
+
           <div class="wfh-wall__video-frame">
             <video ref="liveVideo" autoplay playsinline muted></video>
             <div v-if="!liveConnected" class="wfh-wall__video-empty">
               <i class="bi bi-display"></i>
               <strong>{{ liveStatusTitle }}</strong>
               <span>{{ liveStatus }}</span>
-            </div>
-            <div class="wfh-wall__live-caption">
-              <span :class="['wfh-wall__live-dot', { connected: liveConnected }]"></span>
-              <strong>{{ liveConnected ? 'Live screen connected' : 'Live feed standby' }}</strong>
-              <small>{{ liveStatus }}</small>
             </div>
             <div class="wfh-wall__media-tile" :class="{ connected: liveMediaConnected }">
               <video ref="liveMediaVideo" autoplay playsinline></video>
@@ -123,7 +131,7 @@
               </div>
               <div class="wfh-wall__media-caption">
                 <span :class="['wfh-wall__live-dot', { connected: liveMediaConnected }]"></span>
-                <strong>{{ liveMediaConnected ? 'Cam/Mic live' : 'Cam/Mic standby' }}</strong>
+                <strong>{{ liveMediaConnected ? 'Cam/Mic live' : 'Cam/Mic opening' }}</strong>
               </div>
               <button v-if="liveMediaAudioBlocked" class="wfh-wall__audio-button" type="button" @click="playLiveMedia">
                 <i class="bi bi-volume-up"></i>
@@ -237,10 +245,33 @@
 
           <div class="wfh-wall__map-wrap">
             <div ref="mapEl" class="wfh-wall__map"></div>
+            <div v-if="mapLoading" class="wfh-wall__map-overlay">
+              <span class="wfh-wall__spinner"></span>
+              <strong>Loading map</strong>
+              <small>Preparing the live employee location wall.</small>
+            </div>
+            <div v-if="mapError" class="wfh-wall__map-overlay is-error">
+              <i class="bi bi-exclamation-triangle"></i>
+              <strong>Map unavailable</strong>
+              <small>{{ mapError }}</small>
+              <button type="button" @click="renderLocationMap">Retry map</button>
+            </div>
             <div v-if="!locationSessions.length" class="wfh-wall__map-empty">
               <i class="bi bi-geo-alt"></i>
               <strong>No GPS pings yet</strong>
               <span>Locations appear after the employee browser sends a monitoring heartbeat.</span>
+            </div>
+            <div v-if="!mapLoading && !mapError" class="wfh-wall__map-tools">
+              <button
+                v-for="type in mapTypeOptions"
+                :key="type.key"
+                :class="{ active: mapType === type.key }"
+                type="button"
+                @click="setMapType(type.key)"
+              >
+                <i :class="type.icon"></i>
+                {{ type.label }}
+              </button>
             </div>
             <div class="wfh-wall__map-legend">
               <span><i class="inside"></i> Inside</span>
@@ -318,8 +349,6 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 
 const props = defineProps({
   apiBase: {
@@ -366,14 +395,27 @@ const liveMediaPeer = ref(null);
 const liveMediaStream = ref(null);
 const isFullscreen = ref(false);
 const isAutoRefreshing = ref(false);
+const mapType = ref('roadmap');
+const mapLoading = ref(false);
+const mapError = ref('');
 const refreshTimer = ref(null);
 const signalTimer = ref(null);
 const mediaSignalTimer = ref(null);
 const searchTimer = ref(null);
 let locationMap = null;
-let locationLayer = null;
 let locationBounds = null;
 let locationMarkers = new Map();
+let locationInfoWindow = null;
+let googleMapsLoadPromise = null;
+
+const GOOGLE_MAPS_API_KEY = 'AIzaSyBvGOC4HUPjiDuOE2yr7CwbnC4j6vsa274';
+const PH_CENTER = { lat: 12.8797, lng: 121.7740 };
+const PH_ZOOM = 6;
+const mapTypeOptions = [
+  { key: 'roadmap', label: 'Map', icon: 'bi bi-map' },
+  { key: 'satellite', label: 'Satellite', icon: 'bi bi-globe-asia-australia' },
+  { key: 'terrain', label: 'Terrain', icon: 'bi bi-layers' },
+];
 
 const statCards = computed(() => [
   { key: 'total', label: 'Total', value: stats.value.total || 0 },
@@ -933,71 +975,155 @@ const stopSelectedLive = async ({ resetStatus = true } = {}) => {
   ]);
 };
 
+const loadGoogleMaps = () => {
+  if (window.google?.maps?.Map) {
+    return Promise.resolve();
+  }
+
+  if (googleMapsLoadPromise) {
+    return googleMapsLoadPromise;
+  }
+
+  googleMapsLoadPromise = new Promise((resolve, reject) => {
+    const existingScript = document.getElementById('wfh-google-maps-script');
+
+    if (existingScript) {
+      let attempts = 0;
+      const timer = window.setInterval(() => {
+        if (window.google?.maps?.Map) {
+          window.clearInterval(timer);
+          resolve();
+        }
+
+        attempts += 1;
+        if (attempts > 150) {
+          window.clearInterval(timer);
+          reject(new Error('Google Maps took too long to load.'));
+        }
+      }, 100);
+      return;
+    }
+
+    const callbackName = `__wfhGoogleMapsReady_${Date.now()}`;
+    window[callbackName] = () => {
+      delete window[callbackName];
+      resolve();
+    };
+
+    const script = document.createElement('script');
+    script.id = 'wfh-google-maps-script';
+    script.async = true;
+    script.defer = true;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places,geometry&callback=${callbackName}`;
+    script.onerror = () => reject(new Error('Failed to load Google Maps.'));
+    document.head.appendChild(script);
+  });
+
+  return googleMapsLoadPromise;
+};
+
+const mapStyles = [
+  { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
+  { featureType: 'water', stylers: [{ color: '#b3d1f5' }] },
+  { featureType: 'landscape', stylers: [{ color: '#f5f5f0' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#ffffff' }] },
+  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#f8f8f8' }] },
+  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#94a3b8' }, { weight: 1.2 }] },
+  { featureType: 'administrative.province', elementType: 'geometry.stroke', stylers: [{ color: '#cbd5e1' }, { weight: 0.8 }] },
+];
+
 const renderLocationMap = async () => {
   if (activeView.value !== 'locations' || !mapEl.value) return;
 
-  if (!locationMap) {
-    locationMap = L.map(mapEl.value, {
-      zoomControl: true,
-      scrollWheelZoom: true,
-      attributionControl: false,
-      preferCanvas: true,
-    });
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: 'OpenStreetMap',
-    }).addTo(locationMap);
-
-    locationLayer = L.layerGroup().addTo(locationMap);
+  const showLoader = !locationMap;
+  if (showLoader) {
+    mapLoading.value = true;
   }
+  mapError.value = '';
 
-  locationLayer.clearLayers();
-  locationBounds = null;
-  locationMarkers = new Map();
+  try {
+    await loadGoogleMaps();
+    await nextTick();
 
-  const points = locationSessions.value.map((session) => {
-    return {
+    const G = window.google.maps;
+
+    if (!locationMap) {
+      locationMap = new G.Map(mapEl.value, {
+        center: PH_CENTER,
+        zoom: PH_ZOOM,
+        mapTypeId: G.MapTypeId.ROADMAP,
+        zoomControl: true,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+        styles: mapStyles,
+      });
+
+      locationInfoWindow = new G.InfoWindow({ disableAutoPan: false });
+    }
+
+    locationMarkers.forEach((marker) => marker.setMap(null));
+    locationMarkers = new Map();
+    locationBounds = new G.LatLngBounds();
+    locationMap.setMapTypeId(mapTypeToGoogleId(mapType.value));
+
+    const points = locationSessions.value.map((session) => ({
       session,
       lat: Number(session.lastLocation.lat),
       lng: Number(session.lastLocation.lng),
-    };
-  });
+    }));
 
-  if (!points.length) {
-    locationMap.setView([14.5995, 120.9842], 11);
-    setTimeout(() => locationMap?.invalidateSize(true), 120);
-    return;
-  }
+    if (!points.length) {
+      locationInfoWindow?.close();
+      locationMap.setCenter(PH_CENTER);
+      locationMap.setZoom(PH_ZOOM);
+      return;
+    }
 
-  const bounds = [];
+    points.forEach(({ session, lat, lng }) => {
+      const selected = selectedSessionId.value === session.id;
+      const size = selected ? { width: 58, height: 70 } : { width: 48, height: 60 };
+      const marker = new G.Marker({
+        position: { lat, lng },
+        map: locationMap,
+        icon: {
+          url: toDataUrl(locationPinSvg(session, selected)),
+          scaledSize: new G.Size(size.width, size.height),
+          anchor: new G.Point(size.width / 2, size.height),
+        },
+        title: session.employee?.name || 'Employee location',
+        zIndex: selected ? 1000 : 50,
+      });
 
-  points.forEach(({ session, lat, lng }) => {
-    bounds.push([lat, lng]);
+      marker.addListener('click', () => selectLocationSession(session.id));
+      marker.addListener('mouseover', () => {
+        locationInfoWindow?.setContent(locationPopupHtml(session));
+        locationInfoWindow?.open({ map: locationMap, anchor: marker });
+      });
 
-    const marker = L.marker([lat, lng], {
-      icon: locationMarkerIcon(session, selectedSessionId.value === session.id),
-      riseOnHover: true,
-      keyboard: true,
-    }).addTo(locationLayer);
-
-    marker.bindPopup(locationPopupHtml(session), {
-      maxWidth: 340,
-      className: 'wfh-location-popup',
+      locationBounds.extend(marker.getPosition());
+      locationMarkers.set(session.id, marker);
     });
 
-    marker.on('click', () => selectLocationSession(session.id));
-    locationMarkers.set(session.id, marker);
-  });
-
-  if (bounds.length === 1) {
-    locationMap.setView(bounds[0], 15);
-  } else {
-    locationBounds = L.latLngBounds(bounds);
-    locationMap.fitBounds(locationBounds, { padding: [28, 28], maxZoom: 15 });
+    if (points.length === 1) {
+      locationMap.setCenter({ lat: points[0].lat, lng: points[0].lng });
+      locationMap.setZoom(15);
+    } else {
+      locationMap.fitBounds(locationBounds, 60);
+      G.event.addListenerOnce(locationMap, 'idle', () => {
+        if ((locationMap.getZoom() ?? 0) > 15) {
+          locationMap.setZoom(15);
+        }
+      });
+    }
+  } catch (error) {
+    mapError.value = error.message || 'Unable to load the employee location map.';
+  } finally {
+    if (showLoader) {
+      mapLoading.value = false;
+    }
   }
-
-  setTimeout(() => locationMap?.invalidateSize(true), 120);
 };
 
 const locationStatusKind = (session) => {
@@ -1008,23 +1134,49 @@ const locationStatusKind = (session) => {
   return 'unknown';
 };
 
-const locationMarkerIcon = (session, selected = false) => {
+const locationPinSvg = (session, selected = false) => {
   const kind = locationStatusKind(session);
-  const selectedClass = selected ? 'is-selected' : '';
   const label = escapeHtml(initials(session.employee?.name));
+  const colors = {
+    inside: '#10b981',
+    outside: '#e11d48',
+    unknown: '#64748b',
+  };
+  const color = colors[kind] || colors.unknown;
+  const width = selected ? 58 : 48;
+  const height = selected ? 70 : 60;
+  const center = width / 2;
+  const radius = selected ? 18 : 15;
+  const top = selected ? 24 : 20;
+  const fontSize = selected ? 13 : 11;
+  const ring = selected ? `<circle cx="${center}" cy="${top}" r="${radius + 8}" fill="${color}" opacity="0.18"/>` : '';
 
-  return L.divIcon({
-    className: 'wfh-location-div-icon',
-    html: `
-      <div class="wfh-map-marker is-${kind} ${selectedClass}">
-        <span class="wfh-map-marker__pulse"></span>
-        <span class="wfh-map-marker__core">${label}</span>
-      </div>
-    `,
-    iconSize: [54, 54],
-    iconAnchor: [27, 27],
-    popupAnchor: [0, -28],
-  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+    ${ring}
+    <path d="M${center},${height - 4}
+      C${center},${height - 4} ${center - radius - 11},${top + radius + 13} ${center - radius - 11},${top}
+      A${radius + 11},${radius + 11} 0 1 1 ${center + radius + 11},${top}
+      C${center + radius + 11},${top + radius + 13} ${center},${height - 4} ${center},${height - 4}Z"
+      fill="${color}" stroke="white" stroke-width="${selected ? 3 : 2}" stroke-linejoin="round"/>
+    <circle cx="${center}" cy="${top}" r="${radius}" fill="rgba(15,23,42,0.88)" stroke="rgba(255,255,255,0.7)" stroke-width="1"/>
+    <text x="${center}" y="${top + 4}" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="${fontSize}" font-weight="800" fill="white">${label}</text>
+  </svg>`;
+};
+
+const toDataUrl = (svg) => {
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+};
+
+const mapTypeToGoogleId = (type) => {
+  const G = window.google?.maps;
+
+  if (!G) return type;
+
+  return {
+    roadmap: G.MapTypeId.ROADMAP,
+    satellite: G.MapTypeId.HYBRID,
+    terrain: G.MapTypeId.TERRAIN,
+  }[type] || G.MapTypeId.ROADMAP;
 };
 
 const locationPopupHtml = (session) => {
@@ -1069,27 +1221,43 @@ const fitLocationMap = () => {
     return;
   }
 
-  if (locationBounds?.isValid?.()) {
-    locationMap.fitBounds(locationBounds, { padding: [28, 28], maxZoom: 15 });
+  if (locationBounds && !locationBounds.isEmpty?.()) {
+    locationMap.fitBounds(locationBounds, 60);
     return;
   }
 
   renderLocationMap();
 };
 
+const setMapType = (type) => {
+  mapType.value = type;
+
+  if (!locationMap) return;
+
+  locationMap.setMapTypeId(mapTypeToGoogleId(type));
+};
+
 const openSelectedLocationPopup = () => {
-  if (!locationMap || !selectedSessionId.value) return;
+  if (!locationMap || !selectedSessionId.value || !locationInfoWindow) return;
 
   const marker = locationMarkers.get(selectedSessionId.value);
+  const session = locationSessions.value.find((item) => item.id === selectedSessionId.value);
 
-  if (!marker) return;
+  if (!marker || !session) return;
 
-  marker.openPopup();
-  locationMap.panTo(marker.getLatLng(), { animate: true });
+  locationInfoWindow.setContent(locationPopupHtml(session));
+  locationInfoWindow.open({ map: locationMap, anchor: marker });
+  locationMap.panTo(marker.getPosition());
 };
 
 const selectLocationSession = async (sessionId) => {
-  await selectSession(sessionId);
+  if (activeView.value === 'monitor') {
+    await selectSession(sessionId);
+  } else {
+    selectedSessionId.value = sessionId;
+    await loadSelectedDetails();
+  }
+
   await nextTick();
   await renderLocationMap();
   openSelectedLocationPopup();
@@ -1215,9 +1383,11 @@ onBeforeUnmount(() => {
   stopLiveScreen({ report: true });
   stopLiveMedia({ report: true });
   if (locationMap) {
-    locationMap.remove();
+    locationMarkers.forEach((marker) => marker.setMap(null));
+    locationMarkers = new Map();
+    locationInfoWindow?.close();
     locationMap = null;
-    locationLayer = null;
+    locationInfoWindow = null;
   }
 });
 </script>
@@ -1578,6 +1748,47 @@ onBeforeUnmount(() => {
   line-height: 1.1;
 }
 
+.wfh-wall__feed-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 14px 0;
+}
+
+.wfh-wall__feed-status article {
+  min-width: 0;
+  border: 1px solid var(--wall-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--wall-panel-strong);
+}
+
+.wfh-wall__feed-status article.connected {
+  border-color: rgba(16, 185, 129, 0.34);
+  background: color-mix(in srgb, #10b981 11%, var(--wall-panel));
+}
+
+.wfh-wall__feed-status span,
+.wfh-wall__feed-status small {
+  display: block;
+  overflow: hidden;
+  color: var(--wall-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.wfh-wall__feed-status span {
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.wfh-wall__feed-status strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--wall-text);
+  font-size: 14px;
+}
+
 .wfh-wall__pulse,
 .wfh-wall__state-dot,
 .wfh-wall__live-dot {
@@ -1707,36 +1918,6 @@ onBeforeUnmount(() => {
 .wfh-wall__video-empty strong {
   color: var(--wall-text);
   font-size: 18px;
-}
-
-.wfh-wall__live-caption {
-  position: absolute;
-  left: 14px;
-  bottom: 14px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 4px 8px;
-  width: min(440px, calc(100% - 28px));
-  border: 1px solid var(--wall-border);
-  border-radius: 8px;
-  padding: 9px 11px;
-  background: color-mix(in srgb, var(--wall-panel) 88%, transparent);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
-}
-
-.wfh-wall__live-caption small {
-  grid-column: 2;
-  overflow: hidden;
-  color: var(--wall-muted);
-  font-size: 12px;
-  white-space: normal;
-  text-overflow: ellipsis;
-}
-
-.wfh-wall__live-caption strong {
-  color: var(--wall-text);
-  font-size: 13px;
 }
 
 .wfh-wall__media-tile {
@@ -2055,6 +2236,99 @@ onBeforeUnmount(() => {
   font-size: 18px;
 }
 
+.wfh-wall__map-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  background: color-mix(in srgb, var(--wall-panel) 78%, transparent);
+  color: var(--wall-muted);
+  text-align: center;
+  backdrop-filter: blur(8px);
+}
+
+.wfh-wall__map-overlay strong {
+  color: var(--wall-text);
+  font-size: 18px;
+}
+
+.wfh-wall__map-overlay small {
+  max-width: 340px;
+  font-size: 13px;
+}
+
+.wfh-wall__map-overlay.is-error i {
+  color: #e11d48;
+  font-size: 32px;
+}
+
+.wfh-wall__map-overlay button {
+  justify-self: center;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.wfh-wall__spinner {
+  justify-self: center;
+  width: 34px;
+  height: 34px;
+  border: 3px solid color-mix(in srgb, #2563eb 20%, transparent);
+  border-top-color: #2563eb;
+  border-radius: 999px;
+  animation: wfh-spin 0.9s linear infinite;
+}
+
+@keyframes wfh-spin {
+  to { transform: rotate(360deg); }
+}
+
+.wfh-wall__map-tools {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 4;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--wall-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--wall-panel) 94%, transparent);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(12px);
+}
+
+.wfh-wall__map-tools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  border: 0;
+  border-bottom: 1px solid var(--wall-border);
+  padding: 0 12px;
+  background: transparent;
+  color: var(--wall-muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+
+.wfh-wall__map-tools button:last-child {
+  border-bottom: 0;
+}
+
+.wfh-wall__map-tools button.active {
+  background: #2563eb;
+  color: #fff;
+}
+
 .wfh-wall__map-legend {
   position: absolute;
   right: 14px;
@@ -2196,100 +2470,29 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-:global(.wfh-location-div-icon) {
-  background: transparent;
-  border: 0;
-}
-
-:global(.wfh-map-marker) {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 54px;
-  height: 54px;
-}
-
-:global(.wfh-map-marker__pulse) {
-  position: absolute;
-  inset: 5px;
-  border-radius: 999px;
-  background: rgba(16, 185, 129, 0.28);
-  animation: wfhMapPulse 2s ease-in-out infinite;
-}
-
-:global(.wfh-map-marker__core) {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  border: 3px solid #fff;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #10b981, #22c55e);
-  color: #042318;
-  font-size: 12px;
-  font-weight: 1000;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.32), 0 0 26px rgba(16, 185, 129, 0.46);
-}
-
-:global(.wfh-map-marker.is-outside .wfh-map-marker__pulse) {
-  background: rgba(225, 29, 72, 0.24);
-}
-
-:global(.wfh-map-marker.is-outside .wfh-map-marker__core) {
-  background: linear-gradient(135deg, #fb7185, #e11d48);
-  color: #fff;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.32), 0 0 26px rgba(225, 29, 72, 0.42);
-}
-
-:global(.wfh-map-marker.is-unknown .wfh-map-marker__pulse) {
-  background: rgba(100, 116, 139, 0.28);
-}
-
-:global(.wfh-map-marker.is-unknown .wfh-map-marker__core) {
-  background: linear-gradient(135deg, #94a3b8, #64748b);
-  color: #fff;
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.28);
-}
-
-:global(.wfh-map-marker.is-selected .wfh-map-marker__core) {
-  width: 42px;
-  height: 42px;
-  border-color: #dbeafe;
-  outline: 3px solid rgba(37, 99, 235, 0.32);
-}
-
-@keyframes wfhMapPulse {
-  0%, 100% {
-    opacity: 0.62;
-    transform: scale(0.78);
-  }
-  50% {
-    opacity: 0.18;
-    transform: scale(1.2);
-  }
-}
-
-:global(.wfh-location-popup .leaflet-popup-content-wrapper) {
-  border: 1px solid var(--wall-border);
-  border-radius: 16px;
-  padding: 0;
-  background: color-mix(in srgb, var(--wall-panel) 96%, transparent);
-  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.28);
+:global(.gm-style .gm-style-iw-c) {
+  padding: 0 !important;
+  border-radius: 16px !important;
+  background: color-mix(in srgb, var(--wall-panel) 96%, transparent) !important;
+  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.28) !important;
   backdrop-filter: blur(18px);
 }
 
-:global(.wfh-location-popup .leaflet-popup-content) {
-  min-width: 286px;
-  margin: 0;
+:global(.gm-style .gm-style-iw-d) {
+  overflow: visible !important;
+  padding: 0 !important;
 }
 
-:global(.wfh-location-popup .leaflet-popup-tip) {
-  background: var(--wall-panel);
+:global(.gm-style .gm-style-iw-tc::after) {
+  background: var(--wall-panel) !important;
+}
+
+:global(.gm-style .gm-ui-hover-effect) {
+  display: none !important;
 }
 
 :global(.wfh-map-popup) {
+  width: 306px;
   padding: 16px;
   color: var(--wall-text);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -2544,6 +2747,11 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .wfh-wall__feed-status,
+  .wfh-wall__map-metrics {
+    grid-template-columns: 1fr;
+  }
+
   .wfh-wall__tabs {
     flex-direction: column;
   }
@@ -2562,6 +2770,18 @@ onBeforeUnmount(() => {
     top: 10px;
     right: 10px;
     width: min(190px, calc(100% - 20px));
+  }
+
+  .wfh-wall__map-tools {
+    left: 10px;
+    bottom: 62px;
+  }
+
+  .wfh-wall__map-legend {
+    left: 10px;
+    right: 10px;
+    justify-content: center;
+    border-radius: 12px;
   }
 
   .wfh-wall__map {

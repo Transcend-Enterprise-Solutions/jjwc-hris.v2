@@ -131,7 +131,7 @@
           </article>
 
           <article class="wfh-wall__detail-card">
-            <h3>Connection</h3>
+            <h3>Live Feed Readiness</h3>
             <ol class="wfh-wall__steps">
               <li :class="{ done: Boolean(selectedSession) }">
                 <i class="bi bi-person-check"></i>
@@ -151,7 +151,7 @@
               </li>
             </ol>
             <p class="wfh-wall__helper-text">
-              Keep the employee HRIS tab open after Time In. If this stays on waiting, hard refresh the employee page once so the latest answer handler loads.
+              This checklist shows why the live view is waiting. Ask the employee to keep the HRIS tab open and share their screen when requested.
             </p>
           </article>
 
@@ -507,6 +507,43 @@ const waitForIceGathering = async (peer) => {
   });
 };
 
+const sanitizeRtcDescription = (description) => {
+  if (!description?.sdp) return description;
+
+  const lines = String(description.sdp).split(/\r?\n/);
+  const blockedPayloads = new Set();
+
+  lines.forEach((line) => {
+    const payload = line.match(/^a=(?:rtpmap|fmtp):(\d+)/)?.[1];
+
+    if (!payload) return;
+
+    if (/^a=rtpmap:\d+\s+flexfec-03\/90000/i.test(line) || /^a=fmtp:\d+.*repair-window=/i.test(line)) {
+      blockedPayloads.add(payload);
+    }
+  });
+
+  if (!blockedPayloads.size) return description;
+
+  const sanitized = lines
+    .map((line) => {
+      if (!line.startsWith('m=video ')) return line;
+
+      const parts = line.trim().split(/\s+/);
+      return parts.filter((part, index) => index < 3 || !blockedPayloads.has(part)).join(' ');
+    })
+    .filter((line) => {
+      const payload = line.match(/^a=(?:rtpmap|rtcp-fb|fmtp):(\d+)/)?.[1];
+      return !payload || !blockedPayloads.has(payload);
+    })
+    .join('\r\n');
+
+  return {
+    type: description.type,
+    sdp: sanitized.endsWith('\r\n') ? sanitized : `${sanitized}\r\n`,
+  };
+};
+
 const startLiveScreen = async () => {
   if (!selectedSessionId.value || !window.RTCPeerConnection) {
     liveStatus.value = 'This browser does not support live screen viewing.';
@@ -570,7 +607,7 @@ const startLiveScreen = async () => {
       method: 'POST',
       body: {
         token: liveToken.value,
-        offer: peer.localDescription.toJSON(),
+        offer: sanitizeRtcDescription(peer.localDescription.toJSON()),
       },
     });
 
@@ -608,7 +645,7 @@ const pollLiveSignal = async () => {
     }
 
     if (signal.answer && !livePeer.value.currentRemoteDescription) {
-      await livePeer.value.setRemoteDescription(new RTCSessionDescription(signal.answer));
+      await livePeer.value.setRemoteDescription(new RTCSessionDescription(sanitizeRtcDescription(signal.answer)));
       liveStatus.value = 'Connecting live screen stream...';
     }
 
@@ -1485,6 +1522,91 @@ onBeforeUnmount(() => {
   color: var(--wall-text);
   font-size: 13px;
   font-weight: 800;
+}
+
+.wfh-wall__steps {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.wfh-wall__steps li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  border: 1px solid var(--wall-border);
+  border-radius: 10px;
+  padding: 7px 9px;
+  background: var(--wall-panel-strong);
+  color: var(--wall-muted);
+}
+
+.wfh-wall__steps li::after {
+  content: "Waiting";
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--wall-soft);
+  color: var(--wall-muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.wfh-wall__steps li.done {
+  border-color: rgba(16, 185, 129, 0.36);
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--wall-text);
+}
+
+.wfh-wall__steps li.done::after {
+  content: "Ready";
+  background: rgba(16, 185, 129, 0.18);
+  color: #047857;
+}
+
+:global(.dark) .wfh-wall__steps li.done::after {
+  color: #6ee7b7;
+}
+
+.wfh-wall__steps i {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--wall-soft);
+  color: var(--wall-muted);
+  font-size: 15px;
+}
+
+.wfh-wall__steps li.done i {
+  background: #10b981;
+  color: #042318;
+}
+
+.wfh-wall__steps span {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wfh-wall__helper-text {
+  margin-top: 12px;
+  border-left: 3px solid #2563eb;
+  border-radius: 8px;
+  padding: 10px 11px;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--wall-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .wfh-wall__map {

@@ -622,6 +622,46 @@
             });
         });
     },
+    sanitizeRtcDescription(description) {
+        if (!description?.sdp) {
+            return description;
+        }
+
+        const lines = String(description.sdp).split(/\r?\n/);
+        const blockedPayloads = new Set();
+
+        lines.forEach((line) => {
+            const payload = line.match(/^a=(?:rtpmap|fmtp):(\d+)/)?.[1];
+
+            if (!payload) return;
+
+            if (/^a=rtpmap:\d+\s+flexfec-03\/90000/i.test(line) || /^a=fmtp:\d+.*repair-window=/i.test(line)) {
+                blockedPayloads.add(payload);
+            }
+        });
+
+        if (!blockedPayloads.size) {
+            return description;
+        }
+
+        const sanitized = lines
+            .map((line) => {
+                if (!line.startsWith('m=video ')) return line;
+
+                const parts = line.trim().split(/\s+/);
+                return parts.filter((part, index) => index < 3 || !blockedPayloads.has(part)).join(' ');
+            })
+            .filter((line) => {
+                const payload = line.match(/^a=(?:rtpmap|rtcp-fb|fmtp):(\d+)/)?.[1];
+                return !payload || !blockedPayloads.has(payload);
+            })
+            .join('\r\n');
+
+        return {
+            type: description.type,
+            sdp: sanitized.endsWith('\r\n') ? sanitized : `${sanitized}\r\n`,
+        };
+    },
     async checkLiveScreenRequest() {
         if (this.liveScreenAnswering) {
             return;
@@ -678,11 +718,11 @@
             });
 
             screenStream.getTracks().forEach((track) => peer.addTrack(track, screenStream));
-            await peer.setRemoteDescription(new RTCSessionDescription(request.offer));
+            await peer.setRemoteDescription(new RTCSessionDescription(this.sanitizeRtcDescription(request.offer)));
             const answer = await peer.createAnswer();
             await peer.setLocalDescription(answer);
             await this.waitForIceGathering(peer);
-            await $wire.publishLiveAnswer(request.token, peer.localDescription.toJSON());
+            await $wire.publishLiveAnswer(request.token, this.sanitizeRtcDescription(peer.localDescription.toJSON()));
             this.liveScreenPeer = peer;
             this.liveScreenRequestPending = false;
             this.liveScreenNeedsShareReportedToken = null;
@@ -727,11 +767,11 @@
             });
 
             this.liveMediaStream.getTracks().forEach((track) => peer.addTrack(track, this.liveMediaStream));
-            await peer.setRemoteDescription(new RTCSessionDescription(request.offer));
+            await peer.setRemoteDescription(new RTCSessionDescription(this.sanitizeRtcDescription(request.offer)));
             const answer = await peer.createAnswer();
             await peer.setLocalDescription(answer);
             await this.waitForIceGathering(peer);
-            await $wire.publishLiveMediaAnswer(request.token, peer.localDescription.toJSON());
+            await $wire.publishLiveMediaAnswer(request.token, this.sanitizeRtcDescription(peer.localDescription.toJSON()));
             this.liveMediaPeer = peer;
         } catch (error) {
             $wire.recordMonitoringSignal('live_media_denied', 'Employee did not grant camera and microphone permission', { message: error?.message ?? 'Permission denied' });

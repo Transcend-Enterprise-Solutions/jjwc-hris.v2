@@ -1199,10 +1199,11 @@ onBeforeUnmount(() => {
 
 .wfh-wall__layout {
   display: grid;
-  grid-template-columns: minmax(270px, 340px) minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(280px, 340px);
   gap: 14px;
   padding-bottom: 20px;
   background: var(--wall-bg);
+  overflow-x: clip;
 }
 
 .wfh-wall__location-layout {
@@ -1219,9 +1220,14 @@ onBeforeUnmount(() => {
 .wfh-wall__location-side,
 .wfh-wall__side,
 .wfh-wall__detail-card {
+  min-width: 0;
   border: 1px solid var(--wall-border);
   border-radius: 12px;
   background: var(--wall-panel);
+}
+
+.wfh-wall__viewer {
+  overflow: hidden;
 }
 
 .wfh-wall__side,
@@ -1238,9 +1244,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 14px;
   border-bottom: 1px solid var(--wall-border);
+}
+
+.wfh-wall__viewer-head > div:first-child {
+  min-width: min(320px, 100%);
 }
 
 .wfh-wall__panel-head strong,
@@ -1356,8 +1367,9 @@ onBeforeUnmount(() => {
   position: relative;
   display: grid;
   place-items: center;
-  min-height: min(66dvh, 760px);
-  aspect-ratio: 16 / 9;
+  width: calc(100% - 28px);
+  height: clamp(420px, 58dvh, 720px);
+  min-height: 0;
   margin: 14px;
   border: 1px solid var(--wall-border);
   border-radius: 12px;
@@ -1399,13 +1411,13 @@ onBeforeUnmount(() => {
 
 .wfh-wall__live-caption {
   position: absolute;
-  right: 14px;
+  left: 14px;
   bottom: 14px;
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 4px 8px;
-  max-width: min(460px, calc(100% - 28px));
+  width: min(440px, calc(100% - 28px));
   border: 1px solid var(--wall-border);
   border-radius: 8px;
   padding: 9px 11px;
@@ -1418,7 +1430,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   color: var(--wall-muted);
   font-size: 12px;
-  white-space: nowrap;
+  white-space: normal;
   text-overflow: ellipsis;
 }
 
@@ -2059,6 +2071,7 @@ onBeforeUnmount(() => {
 
   .wfh-wall__video-frame {
     min-height: 320px;
+    height: 420px;
     aspect-ratio: auto;
   }
 

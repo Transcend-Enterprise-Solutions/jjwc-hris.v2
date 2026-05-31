@@ -10,13 +10,14 @@ return new class extends Migration
      */
     public function up(): void
     {
+        $parentModuleId = $this->employeeManagementParentModuleId();
         $moduleId = DB::table('system_modules')
             ->where('route', '/employee-management/wfh-monitoring')
             ->value('id');
 
         if (! $moduleId) {
             $moduleId = DB::table('system_modules')->insertGetId([
-                'parent_module_id' => 1,
+                'parent_module_id' => $parentModuleId,
                 'module_name' => 'WFH Monitoring',
                 'module_key' => 'wfh_monitoring',
                 'component_class' => 'App\\Livewire\\Admin\\WfhMonitoring',
@@ -87,5 +88,26 @@ return new class extends Migration
             });
 
         DB::table('system_modules')->where('id', $moduleId)->delete();
+    }
+
+    private function employeeManagementParentModuleId(): int
+    {
+        $parent = DB::table('parent_modules')
+            ->where('module_key', 'employee_management')
+            ->orWhere('module_name', 'Employee Mgmt')
+            ->orWhere('module_name', 'Employee Management')
+            ->first();
+
+        if ($parent) {
+            return (int) $parent->id;
+        }
+
+        return (int) DB::table('parent_modules')->insertGetId([
+            'module_name' => 'Employee Mgmt',
+            'module_key' => 'employee_management',
+            'icon' => 'bi bi-people',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 };

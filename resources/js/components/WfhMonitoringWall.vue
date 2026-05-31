@@ -393,6 +393,7 @@ const locationMetricCards = computed(() => {
 const liveStatusTitle = computed(() => {
   if (!selectedSession.value) return 'No employee selected';
   if (liveBusy.value) return 'Connecting live feed';
+  if (liveStatus.value === 'Employee screen share is not active yet.') return 'Waiting for screen share';
   if (liveSessionId.value) return 'Waiting for employee browser';
   return 'Live feed not started';
 });
@@ -597,6 +598,12 @@ const pollLiveSignal = async () => {
     if (signal.status === 'answer_failed') {
       liveConnected.value = false;
       liveStatus.value = signal.error || 'Employee browser could not answer the live feed request.';
+      return;
+    }
+
+    if (signal.status === 'awaiting_screen_share') {
+      liveConnected.value = false;
+      liveStatus.value = 'Employee screen share is not active yet.';
       return;
     }
 

@@ -713,7 +713,7 @@ class WfhAttendance extends Component
         $meta = $session?->meta ?? [];
         $liveScreen = $meta['live_screen'] ?? null;
 
-        if (! $session || ! $liveScreen || ! in_array($liveScreen['status'] ?? null, ['requested', 'offer_ready'], true)) {
+        if (! $session || ! $liveScreen || ! in_array($liveScreen['status'] ?? null, ['requested', 'offer_ready', 'awaiting_screen_share'], true)) {
             return null;
         }
 
@@ -723,6 +723,28 @@ class WfhAttendance extends Component
             'status' => $liveScreen['status'] ?? null,
             'offer' => $liveScreen['offer'] ?? null,
         ];
+    }
+
+    public function markLiveScreenNeedsShare($token)
+    {
+        $session = $this->getOpenMonitoringSession();
+
+        if (! $session || ! $token) {
+            return;
+        }
+
+        $meta = $session->meta ?? [];
+        $liveScreen = $meta['live_screen'] ?? [];
+
+        if (($liveScreen['token'] ?? null) !== $token || empty($liveScreen['offer'])) {
+            return;
+        }
+
+        $liveScreen['status'] = 'awaiting_screen_share';
+        $liveScreen['awaiting_screen_share_at'] = now()->toIso8601String();
+        $meta['live_screen'] = $liveScreen;
+
+        $session->update(['meta' => $meta]);
     }
 
     public function publishLiveAnswer($token, $answer)

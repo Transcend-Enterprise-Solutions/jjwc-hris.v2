@@ -14,6 +14,7 @@
     liveScreenAnswering: false,
     liveScreenRequestPending: false,
     liveScreenRequestToken: null,
+    liveScreenNeedsShareReportedToken: null,
     liveMediaPeer: null,
     liveMediaToken: null,
     liveMediaStream: null,
@@ -635,6 +636,7 @@
         if (!request?.token) {
             this.liveScreenRequestPending = false;
             this.liveScreenRequestToken = null;
+            this.liveScreenNeedsShareReportedToken = null;
             return;
         }
 
@@ -651,6 +653,12 @@
             this.screenShareActive = false;
             this.screenResumeRequired = true;
             this.liveScreenRequestPending = true;
+
+            if (this.liveScreenNeedsShareReportedToken !== request.token) {
+                this.liveScreenNeedsShareReportedToken = request.token;
+                await $wire.markLiveScreenNeedsShare(request.token);
+            }
+
             return;
         }
 
@@ -677,6 +685,7 @@
             await $wire.publishLiveAnswer(request.token, peer.localDescription.toJSON());
             this.liveScreenPeer = peer;
             this.liveScreenRequestPending = false;
+            this.liveScreenNeedsShareReportedToken = null;
             this.screenResumeRequired = false;
         } catch (error) {
             if (peer) {

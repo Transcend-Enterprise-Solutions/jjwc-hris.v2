@@ -141,17 +141,13 @@
                 <i class="bi bi-display"></i>
                 <span>Screen sharing active</span>
               </li>
-              <li :class="{ done: Boolean(liveSessionId) }">
-                <i class="bi bi-send"></i>
-                <span>Live request sent</span>
-              </li>
               <li :class="{ done: liveConnected }">
                 <i class="bi bi-broadcast"></i>
                 <span>Live stream connected</span>
               </li>
             </ol>
             <p class="wfh-wall__helper-text">
-              This checklist shows why the live view is waiting. Ask the employee to keep the HRIS tab open and share their screen when requested.
+              Once screen sharing is active, start the feed to open the selected employee's live screen.
             </p>
           </article>
 

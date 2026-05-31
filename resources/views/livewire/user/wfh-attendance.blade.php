@@ -45,6 +45,7 @@
     screenshotIntervalMinutes: @js($screenshotIntervalMinutes),
     locationIntervalMinutes: @js($locationIntervalMinutes),
     afkThresholdMinutes: @js($afkThresholdMinutes),
+    rtcIceServers: @js(config('wfh_monitoring.ice_servers')),
     lastLocationReadAt: 0,
     lastKnownPosition: {},
     punchSubmitting: false,
@@ -622,6 +623,14 @@
             });
         });
     },
+    rtcPeerConfig() {
+        return {
+            iceServers: Array.isArray(this.rtcIceServers) && this.rtcIceServers.length
+                ? this.rtcIceServers
+                : [{ urls: 'stun:stun.l.google.com:19302' }],
+            iceTransportPolicy: 'all',
+        };
+    },
     sanitizeRtcDescription(description) {
         if (!description?.sdp) {
             return description;
@@ -713,9 +722,7 @@
             }
 
             this.screenStream = screenStream;
-            peer = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-            });
+            peer = new RTCPeerConnection(this.rtcPeerConfig());
 
             screenStream.getTracks().forEach((track) => peer.addTrack(track, screenStream));
             await peer.setRemoteDescription(new RTCSessionDescription(this.sanitizeRtcDescription(request.offer)));
@@ -763,9 +770,7 @@
                 return;
             }
 
-            const peer = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-            });
+            const peer = new RTCPeerConnection(this.rtcPeerConfig());
 
             this.liveMediaStream.getTracks().forEach((track) => peer.addTrack(track, this.liveMediaStream));
             await peer.setRemoteDescription(new RTCSessionDescription(this.sanitizeRtcDescription(request.offer)));

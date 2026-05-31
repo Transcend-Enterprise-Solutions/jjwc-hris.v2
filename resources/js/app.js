@@ -30,6 +30,7 @@ const mountWfhMonitoringWall = () => {
     apiBase: root.dataset.apiBase,
     initialDate: root.dataset.initialDate,
     wallUrl: root.dataset.wallUrl,
+    iceServers: JSON.parse(root.dataset.iceServers || '[]'),
   });
 
   app.mount(root);
@@ -62,14 +63,22 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
   tab: 'sessions',
   gpsSelectedSessionId,
   gpsTrailPoints,
+  rtcIceServers: [],
   root: null,
   gpsMap: null,
   gpsMapLayer: null,
   gpsMapMarkers: [],
   initFromServer(root) {
     this.root = root;
+    this.rtcIceServers = JSON.parse(root?.dataset?.iceServers || '[]');
     this.refreshGpsTrailFromDom();
     this.init();
+  },
+  rtcPeerConfig() {
+    return {
+      iceServers: this.rtcIceServers?.length ? this.rtcIceServers : [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceTransportPolicy: 'all',
+    };
   },
   refreshGpsTrailFromDom() {
     const root = this.root;
@@ -300,9 +309,7 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
     }
 
     this.liveToken = request.token;
-    const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+    const peer = new RTCPeerConnection(this.rtcPeerConfig());
 
     peer.addTransceiver('video', { direction: 'recvonly' });
     peer.ontrack = (event) => {
@@ -484,9 +491,7 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
     }
 
     this.mediaToken = request.token;
-    const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+    const peer = new RTCPeerConnection(this.rtcPeerConfig());
 
     peer.addTransceiver('video', { direction: 'recvonly' });
     peer.addTransceiver('audio', { direction: 'recvonly' });

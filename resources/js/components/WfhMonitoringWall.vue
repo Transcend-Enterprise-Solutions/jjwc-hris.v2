@@ -363,6 +363,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  iceServers: {
+    type: Array,
+    default: () => [{ urls: 'stun:stun.l.google.com:19302' }],
+  },
 });
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -416,6 +420,11 @@ const mapTypeOptions = [
   { key: 'satellite', label: 'Satellite', icon: 'bi bi-globe-asia-australia' },
   { key: 'terrain', label: 'Terrain', icon: 'bi bi-layers' },
 ];
+
+const rtcConfiguration = () => ({
+  iceServers: props.iceServers?.length ? props.iceServers : [{ urls: 'stun:stun.l.google.com:19302' }],
+  iceTransportPolicy: 'all',
+});
 
 const statCards = computed(() => [
   { key: 'total', label: 'Total', value: stats.value.total || 0 },
@@ -660,9 +669,7 @@ const startLiveScreen = async ({ force = false } = {}) => {
     liveSessionId.value = selectedSessionId.value;
     liveToken.value = request.token;
 
-    const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+    const peer = new RTCPeerConnection(rtcConfiguration());
 
     peer.addTransceiver('video', { direction: 'recvonly' });
     peer.ontrack = async (event) => {
@@ -760,9 +767,7 @@ const startLiveMedia = async ({ force = false } = {}) => {
     liveMediaSessionId.value = selectedSessionId.value;
     liveMediaToken.value = request.token;
 
-    const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+    const peer = new RTCPeerConnection(rtcConfiguration());
 
     peer.addTransceiver('video', { direction: 'recvonly' });
     peer.addTransceiver('audio', { direction: 'recvonly' });

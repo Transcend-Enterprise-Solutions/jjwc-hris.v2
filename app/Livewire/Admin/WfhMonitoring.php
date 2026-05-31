@@ -89,7 +89,7 @@ class WfhMonitoring extends Component
         ];
 
         $session->update(['meta' => $meta]);
-        $this->logAdminEvent($session, 'live_screen_requested', 'Supervisor requested live screen view');
+        $this->logAdminEvent($session, 'live_screen_requested', 'Supervisor opened live screen view');
 
         return ['token' => $token];
     }
@@ -164,7 +164,7 @@ class WfhMonitoring extends Component
         ];
 
         $session->update(['meta' => $meta]);
-        $this->logAdminEvent($session, 'live_media_requested', 'Supervisor requested employee camera and microphone');
+        $this->logAdminEvent($session, 'live_media_requested', 'Supervisor opened employee camera and microphone');
 
         return ['token' => $token];
     }

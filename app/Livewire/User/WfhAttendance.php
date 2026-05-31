@@ -618,7 +618,7 @@ class WfhAttendance extends Component
 
         $message = is_string($message) && $message !== ''
             ? str($message)->limit(240)->toString()
-            : 'Employee browser could not answer live screen request.';
+            : 'Employee browser could not open live screen.';
 
         $liveScreen['status'] = 'answer_failed';
         $liveScreen['error'] = $message;
@@ -626,7 +626,7 @@ class WfhAttendance extends Component
         $meta['live_screen'] = $liveScreen;
 
         $session->update(['meta' => $meta]);
-        $this->logMonitoringEvent($session, 'live_screen_answer_failed', 'Employee browser could not answer live screen request', [
+        $this->logMonitoringEvent($session, 'live_screen_answer_failed', 'Employee browser could not open live screen', [
             'message' => $message,
         ]);
         $this->refreshMonitoringState();
@@ -811,6 +811,37 @@ class WfhAttendance extends Component
 
         $session->update(['meta' => $meta]);
         $this->logMonitoringEvent($session, 'live_media_answered', 'Employee approved camera and microphone live stream');
+    }
+
+    public function failLiveMediaAnswer($token, $message = null)
+    {
+        $session = $this->getOpenMonitoringSession();
+
+        if (! $session || ! $token) {
+            return;
+        }
+
+        $meta = $session->meta ?? [];
+        $liveMedia = $meta['live_media'] ?? [];
+
+        if (($liveMedia['token'] ?? null) !== $token) {
+            return;
+        }
+
+        $message = is_string($message) && $message !== ''
+            ? str($message)->limit(240)->toString()
+            : 'Employee browser could not open camera and microphone.';
+
+        $liveMedia['status'] = 'answer_failed';
+        $liveMedia['error'] = $message;
+        $liveMedia['failed_at'] = now()->toIso8601String();
+        $meta['live_media'] = $liveMedia;
+
+        $session->update(['meta' => $meta]);
+        $this->logMonitoringEvent($session, 'live_media_answer_failed', 'Employee browser could not open camera and microphone', [
+            'message' => $message,
+        ]);
+        $this->refreshMonitoringState();
     }
 
     public function respondToAfkPrompt($response)

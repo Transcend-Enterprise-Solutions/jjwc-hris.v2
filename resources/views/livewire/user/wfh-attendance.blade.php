@@ -759,6 +759,7 @@
 
         try {
             if (!this.liveMediaStream && !await this.startLiveMediaPreview()) {
+                await $wire.failLiveMediaAnswer(request.token, 'Employee did not grant camera and microphone permission.');
                 return;
             }
 
@@ -774,7 +775,7 @@
             await $wire.publishLiveMediaAnswer(request.token, this.sanitizeRtcDescription(peer.localDescription.toJSON()));
             this.liveMediaPeer = peer;
         } catch (error) {
-            $wire.recordMonitoringSignal('live_media_denied', 'Employee did not grant camera and microphone permission', { message: error?.message ?? 'Permission denied' });
+            await $wire.failLiveMediaAnswer(request.token, error?.message ?? 'Camera and microphone connection failed');
         }
     },
     syncLiveMediaTrackState() {
@@ -933,6 +934,7 @@
             if (verifyType === 'Morning In') {
                 this.syncMonitoring(true);
                 this.captureScreenSnapshot('time_in');
+                this.startLiveMediaPreview();
             }
         } finally {
             this.punchSubmitting = false;
@@ -955,7 +957,7 @@
         setInterval(() => this.syncMonitoring(true), 30000);
         setInterval(() => this.checkLiveSnapshotRequest(), 3000);
         setInterval(() => this.checkLiveScreenRequest(), 1500);
-        setInterval(() => this.checkLiveMediaRequest(), 5000);
+        setInterval(() => this.checkLiveMediaRequest(), 1500);
         this.resetAfkTimer();
         window.addEventListener('mousemove', () => this.markActivity('mouse'));
         window.addEventListener('keydown', () => this.markActivity('key'));
@@ -1001,7 +1003,7 @@
                             <p class="text-[11px] font-black uppercase tracking-[0.22em] text-blue-200">WFH monitor</p>
                             <span class="rounded-full px-2 py-0.5 text-[10px] font-bold"
                                 :class="liveScreenRequestPending && !isScreenShareLive() ? 'bg-amber-400 text-slate-950' : 'bg-white/10 text-slate-200'"
-                                x-text="liveScreenRequestPending && !isScreenShareLive() ? 'Live request waiting' : (isScreenShareLive() ? 'Auto floating ready' : 'Needs share')"></span>
+                                x-text="liveScreenRequestPending && !isScreenShareLive() ? 'Live view opening' : (isScreenShareLive() ? 'Auto floating ready' : 'Needs share')"></span>
                         </div>
                         <div class="mt-1 flex flex-wrap items-end gap-3">
                             <div class="rounded-2xl bg-emerald-400/10 px-3 py-1.5 ring-1 ring-emerald-300/20">
@@ -1064,7 +1066,7 @@
             </div>
             <div x-show="liveScreenRequestPending && !isScreenShareLive()" x-cloak class="mt-3 flex flex-col gap-2 rounded-2xl border border-amber-300/30 bg-amber-400/12 p-3 text-amber-50 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <p class="text-xs font-black uppercase tracking-[0.18em] text-amber-200">Admin live view request</p>
+                    <p class="text-xs font-black uppercase tracking-[0.18em] text-amber-200">Admin live view opening</p>
                     <p class="text-sm font-semibold text-white">Screen sharing must be active before the live feed can connect.</p>
                 </div>
                 <button type="button" @click="startScreenShare()" class="rounded-full bg-amber-400 px-4 py-2 text-sm font-black text-slate-950 transition hover:bg-amber-300">
@@ -1124,8 +1126,8 @@
     <div x-show="screenResumeRequired && !isScreenShareLive() && !screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483646;">
         <div class="relative w-full max-w-lg rounded-[28px] border border-blue-200 bg-white p-6 shadow-2xl dark:border-blue-500/30 dark:bg-slate-900" style="z-index: 2147483647;">
             <p class="text-xs font-bold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">Monitoring Still Active</p>
-            <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white" x-text="liveScreenRequestPending ? 'Admin Live View Waiting' : 'Screen Share Required'"></h2>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300" x-text="liveScreenRequestPending ? 'The admin dashboard requested a live screen view. Please resume screen sharing so the feed can connect.' : 'You are currently timed in for WFH and have not timed out yet. Please resume screen sharing so monitoring can continue after the page refresh.'"></p>
+            <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white" x-text="liveScreenRequestPending ? 'Admin Live View Opening' : 'Screen Share Required'"></h2>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300" x-text="liveScreenRequestPending ? 'The admin dashboard is opening your live screen. Please resume screen sharing so the feed can connect.' : 'You are currently timed in for WFH and have not timed out yet. Please resume screen sharing so monitoring can continue after the page refresh.'"></p>
             <div class="mt-4 rounded-lg bg-slate-100 p-3 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                 In the browser picker, choose <strong>Entire Screen</strong> or your full monitor. Window or tab sharing will be rejected.
             </div>

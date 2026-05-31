@@ -116,7 +116,7 @@ class WfhMonitoringController extends Controller
             'meta' => $meta,
             'screenshot_request_pending' => false,
         ]);
-        $this->logEvent($session, 'live_screen_requested', 'Supervisor requested live screen view');
+        $this->logEvent($session, 'live_screen_requested', 'Supervisor opened live screen view');
 
         return response()->json(['token' => $token]);
     }
@@ -170,7 +170,7 @@ class WfhMonitoringController extends Controller
         ];
 
         $session->update(['meta' => $meta]);
-        $this->logEvent($session, 'live_media_requested', 'Supervisor requested employee camera and microphone');
+        $this->logEvent($session, 'live_media_requested', 'Supervisor opened employee camera and microphone');
 
         return response()->json(['token' => $token]);
     }

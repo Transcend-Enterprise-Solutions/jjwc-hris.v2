@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class WfhMonitoringSessionRecord extends Model
 {
@@ -110,5 +111,10 @@ class WfhMonitoringSessionRecord extends Model
     public function screenshots(): HasMany
     {
         return $this->hasMany(WfhMonitoringScreenshot::class, 'wfh_monitoring_session_id');
+    }
+
+    public function latestScreenshot(): HasOne
+    {
+        return $this->hasOne(WfhMonitoringScreenshot::class, 'wfh_monitoring_session_id')->latestOfMany('captured_at');
     }
 }

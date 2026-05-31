@@ -1,4 +1,6 @@
 import './bootstrap';
+import { createApp } from 'vue';
+import WfhMonitoringWall from './components/WfhMonitoringWall.vue';
 
 // Import Chart.js
 import { Chart } from 'chart.js';
@@ -16,6 +18,26 @@ import dashboardCard06 from './components/dashboard-card-06';
 import dashboardCard08 from './components/dashboard-card-08';
 import dashboardCard09 from './components/dashboard-card-09';
 import dashboardCard11 from './components/dashboard-card-11';
+
+const mountWfhMonitoringWall = () => {
+  const root = document.getElementById('wfh-monitoring-wall');
+
+  if (!root || root.__wfhMonitoringVue) {
+    return;
+  }
+
+  const app = createApp(WfhMonitoringWall, {
+    apiBase: root.dataset.apiBase,
+    initialDate: root.dataset.initialDate,
+    wallUrl: root.dataset.wallUrl,
+  });
+
+  app.mount(root);
+  root.__wfhMonitoringVue = app;
+};
+
+document.addEventListener('DOMContentLoaded', mountWfhMonitoringWall);
+document.addEventListener('livewire:navigated', mountWfhMonitoringWall);
 
 window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints = []) => ({
   wire,

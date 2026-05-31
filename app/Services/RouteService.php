@@ -5,12 +5,17 @@ namespace App\Services;
 use App\Models\AdminRoleAccess;
 use App\Models\SystemModules;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 
 class RouteService
 {
 
     public static function registerDynamicRoutes()
     {
+        if (! self::moduleTablesReady()) {
+            return;
+        }
+
         $modules = SystemModules::whereNotNull('route')
             ->whereNotNull('component_class')
             ->get();
@@ -47,6 +52,10 @@ class RouteService
      */
     public static function getRoutesForRole($roleCode)
     {
+        if (! self::moduleTablesReady()) {
+            return collect();
+        }
+
         $roleAccess = AdminRoleAccess::where('role_code', $roleCode)->first();
 
         if (!$roleAccess) {
@@ -68,5 +77,11 @@ class RouteService
     {
         $routes = self::getRoutesForRole($roleCode);
         return $routes->contains('route', $routePath);
+    }
+
+    private static function moduleTablesReady(): bool
+    {
+        return Schema::hasTable('system_modules')
+            && Schema::hasTable('admin_role_accesses');
     }
 }

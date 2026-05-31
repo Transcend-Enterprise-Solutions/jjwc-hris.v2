@@ -7,6 +7,7 @@ use App\Models\SystemModules;
 use App\Models\ParentModules;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 
 class ModuleAccessService
 {
@@ -15,7 +16,7 @@ class ModuleAccessService
      */
     public static function hasRouteAccess($routeName)
     {
-        if (!Auth::check()) {
+        if (!Auth::check() || ! self::moduleTablesReady()) {
             return false;
         }
 
@@ -47,7 +48,7 @@ class ModuleAccessService
      */
     public static function hasModuleAccess($moduleId)
     {
-        if (!Auth::check()) {
+        if (!Auth::check() || ! self::moduleTablesReady()) {
             return false;
         }
 
@@ -67,7 +68,7 @@ class ModuleAccessService
      */
     public static function getUserAccessibleModules()
     {
-        if (!Auth::check()) {
+        if (!Auth::check() || ! self::moduleTablesReady()) {
             return collect();
         }
 
@@ -86,6 +87,13 @@ class ModuleAccessService
      */
     public static function getAccessibleModulesForSidebar()
     {
+        if (! self::moduleTablesReady()) {
+            return [
+                'topLevel' => collect(),
+                'grouped' => collect()
+            ];
+        }
+
         $accessibleModules = self::getUserAccessibleModules();
         
         if ($accessibleModules->isEmpty()) {
@@ -122,5 +130,12 @@ class ModuleAccessService
     {
         $cacheKey = "user_modules_{$userId}_{$roleCode}";
         Cache::forget($cacheKey);
+    }
+
+    private static function moduleTablesReady(): bool
+    {
+        return Schema::hasTable('admin_role_accesses')
+            && Schema::hasTable('system_modules')
+            && Schema::hasTable('parent_modules');
     }
 }

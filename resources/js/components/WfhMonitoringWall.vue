@@ -8,48 +8,41 @@
         </div>
 
         <div class="wfh-wall__actions">
-          <div class="wfh-wall__search">
+          <label class="wfh-wall__search">
             <i class="bi bi-search"></i>
             <input v-model.trim="search" type="search" placeholder="Search employee or ID" @keydown.enter="loadSessions" />
-          </div>
+          </label>
           <input v-model="selectedDate" class="wfh-wall__date" type="date" @change="loadSessions" />
-          <button class="wfh-wall__button wfh-wall__button--muted" type="button" title="Refresh monitoring data" @click="loadSessions">
+          <button class="wfh-wall__button wfh-wall__button--muted" type="button" @click="loadSessions">
             <i class="bi bi-arrow-clockwise"></i>
             Refresh
           </button>
-          <a v-if="wallUrl" class="wfh-wall__button wfh-wall__button--muted" :href="wallUrl" target="_blank" rel="noopener" title="Open WFH monitoring in a clean browser tab">
+          <a v-if="wallUrl" class="wfh-wall__button wfh-wall__button--muted" :href="wallUrl" target="_blank" rel="noopener">
             <i class="bi bi-box-arrow-up-right"></i>
             Open wall
           </a>
-          <button class="wfh-wall__button wfh-wall__button--primary" type="button" title="Use the full screen for monitoring" @click="toggleFullscreen">
+          <button class="wfh-wall__button wfh-wall__button--primary" type="button" @click="toggleFullscreen">
             <i :class="isFullscreen ? 'bi bi-fullscreen-exit' : 'bi bi-fullscreen'"></i>
             {{ isFullscreen ? 'Exit' : 'Fullscreen' }}
           </button>
         </div>
       </header>
 
-      <div class="wfh-wall__stats" aria-label="WFH monitoring summary">
+      <div class="wfh-wall__stats">
         <article v-for="stat in statCards" :key="stat.key" :class="['wfh-wall__stat', `is-${stat.key}`]">
           <span>{{ stat.label }}</span>
           <strong>{{ stat.value }}</strong>
         </article>
       </div>
 
-      <nav class="wfh-wall__tabs" aria-label="WFH monitoring views">
-        <button v-for="mode in modes" :key="mode.key" :class="{ active: activeMode === mode.key }" type="button" @click="activeMode = mode.key">
-          <i :class="mode.icon"></i>
-          {{ mode.label }}
-        </button>
-      </nav>
-
       <div v-if="errorMessage" class="wfh-wall__alert">
         <i class="bi bi-exclamation-triangle"></i>
         <span>{{ errorMessage }}</span>
       </div>
 
-      <main v-show="activeMode === 'wall'" class="wfh-wall__grid-layout">
+      <main class="wfh-wall__layout">
         <aside class="wfh-wall__roster">
-          <div class="wfh-wall__panel-title">
+          <div class="wfh-wall__panel-head">
             <div>
               <strong>Employees</strong>
               <span>{{ sessions.length }} monitored today</span>
@@ -78,89 +71,42 @@
           </div>
         </aside>
 
-        <section class="wfh-wall__monitor-bank">
-          <div class="wfh-wall__bank-toolbar">
-            <div>
-              <strong>Screen Wall</strong>
-              <span>Latest available frame per employee</span>
-            </div>
-            <div class="wfh-wall__button-row">
-              <button class="wfh-wall__button wfh-wall__button--muted" type="button" @click="requestSelectedSnapshot" :disabled="!selectedSession">
-                <i class="bi bi-camera"></i>
-                Snapshot
-              </button>
-              <button class="wfh-wall__button wfh-wall__button--success" type="button" @click="startSelectedLiveSnapshots" :disabled="!selectedSession || selectedLiveActive">
-                <i class="bi bi-broadcast"></i>
-                Live feed
-              </button>
-            </div>
-          </div>
-
-          <div class="wfh-wall__screen-grid">
-            <article
-              v-for="session in sessions"
-              :key="`tile-${session.id}`"
-              :class="['wfh-wall__screen-tile', { selected: selectedSessionId === session.id }]"
-              @click="selectSession(session.id)"
-            >
-              <div class="wfh-wall__screen-frame">
-                <img v-if="session.latestScreenshot?.url" :src="session.latestScreenshot.url" :alt="`${session.employee?.name || 'Employee'} screen snapshot`" />
-                <div v-else class="wfh-wall__empty-frame">
-                  <i class="bi bi-display"></i>
-                  <span>No frame yet</span>
-                </div>
-              </div>
-              <footer>
-                <div>
-                  <strong>{{ session.employee?.name || 'Unknown employee' }}</strong>
-                  <small>{{ session.latestScreenshot ? formatTime(session.latestScreenshot.capturedAt) : 'Waiting for first capture' }}</small>
-                </div>
-                <span :class="['wfh-wall__badge', stateClass(session.state)]">{{ session.state }}</span>
-              </footer>
-            </article>
-          </div>
-        </section>
-      </main>
-
-      <main v-show="activeMode === 'focus'" class="wfh-wall__focus">
         <section class="wfh-wall__viewer">
-          <div class="wfh-wall__viewer-header">
+          <div class="wfh-wall__viewer-head">
             <div>
-              <p>Selected Employee</p>
+              <p>Selected Live Feed</p>
               <h2>{{ selectedSession?.employee?.name || 'No employee selected' }}</h2>
-              <span>{{ selectedSession?.employee?.empCode || 'Choose an employee from the wall' }}</span>
+              <span>{{ selectedSession?.employee?.empCode || 'Choose an active employee to open a live screen feed' }}</span>
             </div>
+
             <div class="wfh-wall__button-row">
-              <button class="wfh-wall__button wfh-wall__button--muted" type="button" @click="requestSelectedSnapshot" :disabled="!selectedSession || actionBusy">
-                <i class="bi bi-camera"></i>
-                Request snapshot
-              </button>
-              <button class="wfh-wall__button wfh-wall__button--success" type="button" @click="startSelectedLiveSnapshots" :disabled="!selectedSession || selectedLiveActive || actionBusy">
+              <button class="wfh-wall__button wfh-wall__button--success" type="button" @click="startLiveScreen" :disabled="!selectedSession || liveBusy || liveConnected">
                 <i class="bi bi-play-circle"></i>
-                Start live snapshots
+                Start live feed
               </button>
-              <button class="wfh-wall__button wfh-wall__button--danger" type="button" @click="stopSelectedLiveSnapshots" :disabled="!selectedSession || !selectedLiveActive || actionBusy">
+              <button class="wfh-wall__button wfh-wall__button--danger" type="button" @click="stopLiveScreen" :disabled="!selectedSession || liveBusy || !liveSessionId">
                 <i class="bi bi-stop-circle"></i>
-                Stop
+                Stop feed
               </button>
             </div>
           </div>
 
-          <div class="wfh-wall__large-frame">
-            <img v-if="selectedSnapshotUrl" :src="selectedSnapshotUrl" :alt="`${selectedSession?.employee?.name || 'Selected employee'} current screen`" />
-            <div v-else class="wfh-wall__empty-frame">
+          <div class="wfh-wall__video-frame">
+            <video ref="liveVideo" autoplay playsinline muted></video>
+            <div v-if="!liveConnected" class="wfh-wall__video-empty">
               <i class="bi bi-display"></i>
-              <strong>No screen frame yet</strong>
-              <span>Ask the employee to keep the WFH attendance page open and screen sharing active.</span>
+              <strong>{{ liveStatusTitle }}</strong>
+              <span>{{ liveStatus }}</span>
             </div>
-            <div class="wfh-wall__frame-caption">
-              <span>{{ selectedLiveActive ? 'Live snapshots active' : 'Latest saved frame' }}</span>
-              <strong>{{ selectedSnapshotTime }}</strong>
+            <div class="wfh-wall__live-caption">
+              <span :class="['wfh-wall__live-dot', { connected: liveConnected }]"></span>
+              <strong>{{ liveConnected ? 'Live screen connected' : 'Live feed standby' }}</strong>
+              <small>{{ liveStatus }}</small>
             </div>
           </div>
         </section>
 
-        <aside class="wfh-wall__details">
+        <aside class="wfh-wall__side">
           <article class="wfh-wall__detail-card">
             <h3>Session</h3>
             <dl>
@@ -168,18 +114,25 @@
               <div><dt>Work mode</dt><dd>{{ selectedSession?.workStatus || '-' }}</dd></div>
               <div><dt>Online</dt><dd>{{ duration(selectedSession?.onlineSeconds) }}</dd></div>
               <div><dt>Active</dt><dd>{{ duration(selectedSession?.activeSeconds) }}</dd></div>
+              <div><dt>Idle</dt><dd>{{ duration(selectedSession?.idleSeconds) }}</dd></div>
               <div><dt>Last activity</dt><dd>{{ relativeTime(selectedSession?.lastActivityAt) }}</dd></div>
             </dl>
           </article>
 
           <article class="wfh-wall__detail-card">
-            <h3>Snapshot Timeline</h3>
-            <div class="wfh-wall__thumbs">
-              <button v-for="shot in selectedScreenshots" :key="shot.id" type="button" @click="overrideSnapshot = shot">
-                <img :src="shot.url" alt="WFH screen thumbnail" />
-                <span>{{ formatTime(shot.capturedAt) }}</span>
+            <h3>Screen Matrix</h3>
+            <div class="wfh-wall__mini-grid">
+              <button
+                v-for="session in sessions"
+                :key="`mini-${session.id}`"
+                :class="['wfh-wall__mini-tile', { selected: selectedSessionId === session.id }]"
+                type="button"
+                @click="selectSession(session.id)"
+              >
+                <span :class="['wfh-wall__state-dot', stateClass(session.state)]"></span>
+                <strong>{{ initials(session.employee?.name) }}</strong>
+                <small>{{ session.employee?.empCode || session.id }}</small>
               </button>
-              <p v-if="!selectedScreenshots.length">No snapshots uploaded yet.</p>
             </div>
           </article>
 
@@ -197,27 +150,6 @@
             </ol>
           </article>
         </aside>
-      </main>
-
-      <main v-show="activeMode === 'activity'" class="wfh-wall__activity">
-        <section class="wfh-wall__detail-card">
-          <h3>Location Trail</h3>
-          <div class="wfh-wall__location-grid">
-            <article v-for="point in selectedLocations" :key="point.id">
-              <strong>{{ point.locationLabel || point.status || 'Location ping' }}</strong>
-              <span>{{ formatTime(point.occurredAt) }}</span>
-              <small>Lat {{ point.lat }}, Lng {{ point.lng }}</small>
-            </article>
-            <p v-if="!selectedLocations.length">No GPS pings for this session yet.</p>
-          </div>
-        </section>
-
-        <section class="wfh-wall__detail-card">
-          <h3>Screen Notes</h3>
-          <p class="wfh-wall__plain-text">
-            This view uses uploaded screen frames, so it works on Hostinger shared hosting without websocket or TURN server setup. Peer video controls can stay available later, but snapshots are the stable monitoring path.
-          </p>
-        </section>
       </main>
     </div>
   </section>
@@ -243,31 +175,26 @@ const props = defineProps({
 
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 const wallRoot = ref(null);
-const activeMode = ref('wall');
+const liveVideo = ref(null);
 const selectedDate = ref(props.initialDate || new Date().toISOString().slice(0, 10));
 const search = ref('');
 const sessions = ref([]);
 const stats = ref({});
 const selectedSessionId = ref(null);
 const selectedDetails = ref(null);
-const selectedScreenshots = ref([]);
 const selectedEvents = ref([]);
-const selectedLocations = ref([]);
-const liveSnapshot = ref(null);
-const overrideSnapshot = ref(null);
 const errorMessage = ref('');
-const actionBusy = ref(false);
+const liveStatus = ref('Select an employee and start a live feed.');
+const liveBusy = ref(false);
+const liveConnected = ref(false);
+const liveSessionId = ref(null);
+const liveToken = ref(null);
+const livePeer = ref(null);
 const isFullscreen = ref(false);
 const isAutoRefreshing = ref(false);
 const refreshTimer = ref(null);
-const liveTimer = ref(null);
+const signalTimer = ref(null);
 const searchTimer = ref(null);
-
-const modes = [
-  { key: 'wall', label: 'Monitor Wall', icon: 'bi bi-grid-3x3-gap' },
-  { key: 'focus', label: 'Selected Screen', icon: 'bi bi-display' },
-  { key: 'activity', label: 'Activity / GPS', icon: 'bi bi-activity' },
-];
 
 const statCards = computed(() => [
   { key: 'total', label: 'Total', value: stats.value.total || 0 },
@@ -282,19 +209,11 @@ const selectedSession = computed(() => {
   return selectedDetails.value || sessions.value.find((session) => session.id === selectedSessionId.value) || null;
 });
 
-const selectedLiveActive = computed(() => Boolean(selectedSession.value?.liveSnapshotsActive));
-
-const selectedSnapshot = computed(() => {
-  return overrideSnapshot.value || liveSnapshot.value || selectedSession.value?.latestScreenshot || null;
-});
-
-const selectedSnapshotUrl = computed(() => {
-  if (!selectedSnapshot.value?.url) return '';
-  return `${selectedSnapshot.value.url}${selectedSnapshot.value.url.includes('?') ? '&' : '?'}v=${encodeURIComponent(selectedSnapshot.value.capturedAt || selectedSnapshot.value.id || Date.now())}`;
-});
-
-const selectedSnapshotTime = computed(() => {
-  return selectedSnapshot.value?.capturedAt ? formatTime(selectedSnapshot.value.capturedAt) : 'Waiting for first frame';
+const liveStatusTitle = computed(() => {
+  if (!selectedSession.value) return 'No employee selected';
+  if (liveBusy.value) return 'Connecting live feed';
+  if (liveSessionId.value) return 'Waiting for employee browser';
+  return 'Live feed not started';
 });
 
 const apiUrl = (path, params = {}) => {
@@ -350,8 +269,6 @@ const loadSessions = async ({ silent = false } = {}) => {
     } else if (selectedSessionId.value && !sessions.value.some((session) => session.id === selectedSessionId.value)) {
       selectedSessionId.value = sessions.value[0]?.id || null;
       await loadSelectedDetails();
-    } else if (selectedSessionId.value && activeMode.value !== 'wall') {
-      await loadSelectedDetails({ silent: true });
     }
   } catch (error) {
     if (!silent) errorMessage.value = error.message || 'Unable to load WFH monitoring sessions.';
@@ -363,105 +280,181 @@ const loadSessions = async ({ silent = false } = {}) => {
 const loadSelectedDetails = async ({ silent = false } = {}) => {
   if (!selectedSessionId.value) {
     selectedDetails.value = null;
-    selectedScreenshots.value = [];
     selectedEvents.value = [];
-    selectedLocations.value = [];
     return;
   }
 
   try {
     const payload = await apiFetch(`/sessions/${selectedSessionId.value}`);
     selectedDetails.value = payload.session || null;
-    selectedScreenshots.value = payload.screenshots || [];
     selectedEvents.value = payload.events || [];
-    selectedLocations.value = payload.locations || [];
   } catch (error) {
     if (!silent) errorMessage.value = error.message || 'Unable to load selected employee details.';
   }
 };
 
 const selectSession = async (sessionId) => {
+  if (sessionId !== selectedSessionId.value) {
+    await stopLiveScreen({ report: true, resetStatus: false });
+  }
+
   selectedSessionId.value = sessionId;
-  liveSnapshot.value = null;
-  overrideSnapshot.value = null;
+  liveStatus.value = 'Ready to start live feed.';
   await loadSelectedDetails();
 };
 
-const requestSelectedSnapshot = async () => {
-  if (!selectedSessionId.value) return;
-  actionBusy.value = true;
+const waitForIceGathering = async (peer) => {
+  if (peer.iceGatheringState === 'complete') return;
+
+  await new Promise((resolve) => {
+    const timeout = window.setTimeout(resolve, 3000);
+    peer.addEventListener('icegatheringstatechange', () => {
+      if (peer.iceGatheringState === 'complete') {
+        window.clearTimeout(timeout);
+        resolve();
+      }
+    });
+  });
+};
+
+const startLiveScreen = async () => {
+  if (!selectedSessionId.value || !window.RTCPeerConnection) {
+    liveStatus.value = 'This browser does not support live screen viewing.';
+    return;
+  }
+
+  await stopLiveScreen({ report: false, resetStatus: false });
+  liveBusy.value = true;
   errorMessage.value = '';
+  liveStatus.value = 'Requesting employee live screen permission...';
 
   try {
-    const payload = await apiFetch(`/sessions/${selectedSessionId.value}/snapshot/request`, { method: 'POST' });
-    selectedDetails.value = payload.session || selectedDetails.value;
-    await loadSessions({ silent: true });
+    const request = await apiFetch(`/sessions/${selectedSessionId.value}/live-screen/request`, { method: 'POST' });
+
+    if (!request?.token) {
+      throw new Error('Unable to create live feed request.');
+    }
+
+    liveSessionId.value = selectedSessionId.value;
+    liveToken.value = request.token;
+
+    const peer = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+    });
+
+    peer.addTransceiver('video', { direction: 'recvonly' });
+    peer.ontrack = async (event) => {
+      const stream = event.streams?.[0] || new MediaStream([event.track]);
+      await nextTick();
+
+      if (liveVideo.value) {
+        liveVideo.value.srcObject = stream;
+        liveVideo.value.play().catch(() => {});
+      }
+
+      liveConnected.value = true;
+      liveStatus.value = 'Receiving employee screen in real time.';
+    };
+    peer.onconnectionstatechange = () => {
+      const state = peer.connectionState;
+
+      if (['connected', 'completed'].includes(state)) {
+        liveConnected.value = true;
+        liveStatus.value = 'Receiving employee screen in real time.';
+        return;
+      }
+
+      if (['failed', 'disconnected', 'closed'].includes(state)) {
+        liveConnected.value = false;
+        liveStatus.value = state === 'closed' ? 'Live feed stopped.' : 'Live feed disconnected.';
+        return;
+      }
+
+      liveStatus.value = `Live feed ${state}.`;
+    };
+
+    const offer = await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    await waitForIceGathering(peer);
+    await apiFetch(`/sessions/${selectedSessionId.value}/live-screen/offer`, {
+      method: 'POST',
+      body: {
+        token: liveToken.value,
+        offer: peer.localDescription.toJSON(),
+      },
+    });
+
+    livePeer.value = peer;
+    liveStatus.value = 'Waiting for employee browser to answer...';
+    startSignalPolling();
   } catch (error) {
-    errorMessage.value = error.message || 'Snapshot request failed.';
+    await stopLiveScreen({ report: true, resetStatus: false });
+    errorMessage.value = error.message || 'Unable to start live feed.';
+    liveStatus.value = errorMessage.value;
   } finally {
-    actionBusy.value = false;
+    liveBusy.value = false;
   }
 };
 
-const startSelectedLiveSnapshots = async () => {
-  if (!selectedSessionId.value) return;
-  actionBusy.value = true;
-  errorMessage.value = '';
+const pollLiveSignal = async () => {
+  if (!liveSessionId.value || !liveToken.value || !livePeer.value) return;
 
   try {
-    const payload = await apiFetch(`/sessions/${selectedSessionId.value}/live-snapshots/start`, { method: 'POST' });
-    liveSnapshot.value = payload.snapshot || liveSnapshot.value;
-    await loadSelectedDetails({ silent: true });
-    await loadSessions({ silent: true });
-    activeMode.value = 'focus';
-    startLivePolling(Math.max(3, Number(payload.intervalSeconds || 5)));
-  } catch (error) {
-    errorMessage.value = error.message || 'Unable to start live snapshots.';
-  } finally {
-    actionBusy.value = false;
-  }
-};
+    const payload = await apiFetch(`/sessions/${liveSessionId.value}/live-screen/signal`);
+    const signal = payload.signal || null;
 
-const stopSelectedLiveSnapshots = async () => {
-  if (!selectedSessionId.value) return;
-  actionBusy.value = true;
+    if (signal?.token !== liveToken.value) return;
 
-  try {
-    await apiFetch(`/sessions/${selectedSessionId.value}/live-snapshots/stop`, { method: 'POST' });
-    stopLivePolling();
-    await loadSelectedDetails({ silent: true });
-    await loadSessions({ silent: true });
-  } catch (error) {
-    errorMessage.value = error.message || 'Unable to stop live snapshots.';
-  } finally {
-    actionBusy.value = false;
-  }
-};
+    if (signal.answer && !livePeer.value.currentRemoteDescription) {
+      await livePeer.value.setRemoteDescription(new RTCSessionDescription(signal.answer));
+      liveStatus.value = 'Connecting live screen stream...';
+    }
 
-const pollLatestSnapshot = async () => {
-  if (!selectedSessionId.value) return;
-
-  try {
-    const payload = await apiFetch(`/sessions/${selectedSessionId.value}/live-snapshots/latest`);
-    if (payload.snapshot) {
-      liveSnapshot.value = payload.snapshot;
-      overrideSnapshot.value = null;
+    if (signal.status === 'stopped') {
+      await stopLiveScreen({ report: false });
     }
   } catch {
-    stopLivePolling();
+    liveStatus.value = 'Live feed signal check failed.';
   }
 };
 
-const startLivePolling = (intervalSeconds = 5) => {
-  stopLivePolling();
-  pollLatestSnapshot();
-  liveTimer.value = window.setInterval(pollLatestSnapshot, intervalSeconds * 1000);
+const startSignalPolling = () => {
+  stopSignalPolling();
+  pollLiveSignal();
+  signalTimer.value = window.setInterval(pollLiveSignal, 1200);
 };
 
-const stopLivePolling = () => {
-  if (liveTimer.value) {
-    window.clearInterval(liveTimer.value);
-    liveTimer.value = null;
+const stopSignalPolling = () => {
+  if (signalTimer.value) {
+    window.clearInterval(signalTimer.value);
+    signalTimer.value = null;
+  }
+};
+
+const stopLiveScreen = async ({ report = true, resetStatus = true } = {}) => {
+  stopSignalPolling();
+
+  const sessionId = liveSessionId.value;
+
+  if (livePeer.value) {
+    livePeer.value.close();
+  }
+
+  if (liveVideo.value) {
+    liveVideo.value.srcObject = null;
+  }
+
+  livePeer.value = null;
+  liveToken.value = null;
+  liveSessionId.value = null;
+  liveConnected.value = false;
+
+  if (report && sessionId) {
+    await apiFetch(`/sessions/${sessionId}/live-screen/stop`, { method: 'POST' }).catch(() => {});
+  }
+
+  if (resetStatus) {
+    liveStatus.value = 'Live feed stopped.';
   }
 };
 
@@ -516,55 +509,82 @@ const duration = (seconds = 0) => {
   return [hours, minutes, secs].map((part) => String(part).padStart(2, '0')).join(':');
 };
 
+const initials = (name = '') => {
+  return String(name)
+    .split(/[,\s]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || '--';
+};
+
 watch(search, () => {
   window.clearTimeout(searchTimer.value);
   searchTimer.value = window.setTimeout(() => loadSessions(), 350);
 });
 
-watch(activeMode, async (mode) => {
-  if (mode !== 'wall' && selectedSessionId.value) {
-    await nextTick();
-    loadSelectedDetails({ silent: true });
-  }
-});
-
 onMounted(async () => {
   document.addEventListener('fullscreenchange', syncFullscreenState);
   await loadSessions();
-  refreshTimer.value = window.setInterval(() => loadSessions({ silent: true }), 5000);
+  refreshTimer.value = window.setInterval(() => {
+    loadSessions({ silent: true });
+    loadSelectedDetails({ silent: true });
+  }, 5000);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreenState);
   window.clearInterval(refreshTimer.value);
   window.clearTimeout(searchTimer.value);
-  stopLivePolling();
+  stopLiveScreen({ report: true });
 });
 </script>
 
 <style scoped>
 .wfh-wall {
-  color: #d9e6f7;
+  --wall-bg: #f4f7fb;
+  --wall-shell: #ffffff;
+  --wall-panel: #ffffff;
+  --wall-panel-strong: #f8fafc;
+  --wall-border: rgba(100, 116, 139, 0.22);
+  --wall-text: #0f172a;
+  --wall-muted: #64748b;
+  --wall-soft: #e2e8f0;
+  --wall-input: #ffffff;
+  --wall-video: #e5e7eb;
+  --wall-shadow: 0 24px 70px rgba(15, 23, 42, 0.14);
+  color: var(--wall-text);
+}
+
+:global(.dark) .wfh-wall {
+  --wall-bg: #07111f;
+  --wall-shell: #07111f;
+  --wall-panel: #0b1628;
+  --wall-panel-strong: #111d30;
+  --wall-border: rgba(148, 163, 184, 0.22);
+  --wall-text: #e5eefb;
+  --wall-muted: #9fb0c6;
+  --wall-soft: #1e293b;
+  --wall-input: #101c2f;
+  --wall-video: #020617;
+  --wall-shadow: 0 24px 90px rgba(2, 6, 23, 0.28);
 }
 
 .wfh-wall__shell {
-  width: min(100%, 1780px);
-  min-height: calc(100dvh - 9.5rem);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 16px;
-  background: #07111f;
-  box-shadow: 0 24px 90px rgba(2, 6, 23, 0.25);
+  width: min(100%, 1800px);
+  min-height: calc(100dvh - 8.75rem);
+  border: 1px solid var(--wall-border);
+  border-radius: 14px;
+  background: var(--wall-shell);
+  box-shadow: var(--wall-shadow);
   overflow: hidden;
 }
 
 .wfh-wall__header,
 .wfh-wall__stats,
-.wfh-wall__tabs,
-.wfh-wall__grid-layout,
-.wfh-wall__focus,
-.wfh-wall__activity {
-  padding-left: clamp(14px, 2vw, 28px);
-  padding-right: clamp(14px, 2vw, 28px);
+.wfh-wall__layout {
+  padding-left: clamp(14px, 1.5vw, 24px);
+  padding-right: clamp(14px, 1.5vw, 24px);
 }
 
 .wfh-wall__header {
@@ -572,25 +592,29 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-top: 22px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-  background: linear-gradient(180deg, #0f1e32 0%, #07111f 100%);
+  padding-top: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--wall-border);
+  background: var(--wall-panel);
 }
 
 .wfh-wall__eyebrow {
-  color: #67e8f9;
+  color: #0284c7;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0;
   text-transform: uppercase;
 }
 
+:global(.dark) .wfh-wall__eyebrow {
+  color: #67e8f9;
+}
+
 .wfh-wall__title {
   margin-top: 4px;
-  color: #f8fafc;
-  font-size: clamp(22px, 2.3vw, 34px);
-  line-height: 1.08;
+  color: var(--wall-text);
+  font-size: clamp(22px, 2vw, 30px);
+  line-height: 1.1;
   font-weight: 800;
   letter-spacing: 0;
 }
@@ -606,28 +630,26 @@ onBeforeUnmount(() => {
 .wfh-wall__search,
 .wfh-wall__date,
 .wfh-wall__button {
-  height: 42px;
+  height: 40px;
   border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  background: #101c2f;
-  color: #e2e8f0;
+  border: 1px solid var(--wall-border);
+  background: var(--wall-input);
+  color: var(--wall-text);
 }
 
 .wfh-wall__search {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: min(280px, 100%);
+  min-width: min(270px, 100%);
   padding: 0 12px;
-}
-
-.wfh-wall__search input,
-.wfh-wall__date {
-  outline: none;
 }
 
 .wfh-wall__search input {
   width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
   background: transparent;
   color: inherit;
   font-size: 14px;
@@ -646,7 +668,7 @@ onBeforeUnmount(() => {
   padding: 0 14px;
   font-size: 13px;
   font-weight: 800;
-  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition: transform 120ms ease, opacity 120ms ease;
 }
 
 .wfh-wall__button:disabled {
@@ -660,45 +682,46 @@ onBeforeUnmount(() => {
 
 .wfh-wall__button--primary {
   background: #2563eb;
-  border-color: #3b82f6;
+  border-color: #2563eb;
   color: #fff;
 }
 
 .wfh-wall__button--success {
   background: #10b981;
-  border-color: #34d399;
-  color: #032115;
+  border-color: #10b981;
+  color: #042318;
 }
 
 .wfh-wall__button--danger {
   background: #e11d48;
-  border-color: #fb7185;
+  border-color: #e11d48;
   color: #fff;
 }
 
 .wfh-wall__button--muted {
-  background: #17243a;
+  background: var(--wall-panel-strong);
 }
 
 .wfh-wall__stats {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
-  gap: 12px;
-  padding-top: 18px;
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
+  gap: 10px;
+  padding-top: 14px;
   padding-bottom: 14px;
+  background: var(--wall-bg);
 }
 
 .wfh-wall__stat {
-  min-height: 86px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  min-height: 76px;
+  border: 1px solid var(--wall-border);
   border-radius: 10px;
-  padding: 14px;
-  background: #101c2f;
+  padding: 12px;
+  background: var(--wall-panel);
 }
 
 .wfh-wall__stat span {
   display: block;
-  color: #9fb0c6;
+  color: var(--wall-muted);
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
@@ -706,113 +729,115 @@ onBeforeUnmount(() => {
 
 .wfh-wall__stat strong {
   display: block;
-  margin-top: 10px;
-  color: #f8fafc;
-  font-size: 32px;
+  margin-top: 8px;
+  color: var(--wall-text);
+  font-size: 28px;
   line-height: 1;
 }
 
-.wfh-wall__stat.is-active strong { color: #6ee7b7; }
-.wfh-wall__stat.is-afk strong { color: #fde68a; }
-.wfh-wall__stat.is-onBreak strong { color: #7dd3fc; }
-.wfh-wall__stat.is-screenOff strong { color: #fdba74; }
-.wfh-wall__stat.is-geofenceAlerts strong { color: #fda4af; }
-
-.wfh-wall__tabs {
-  display: flex;
-  gap: 8px;
-  padding-bottom: 16px;
-}
-
-.wfh-wall__tabs button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  border-radius: 8px;
-  padding: 0 16px;
-  color: #9fb0c6;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.wfh-wall__tabs button.active {
-  background: #1d4ed8;
-  color: #eff6ff;
-}
+.wfh-wall__stat.is-active strong { color: #059669; }
+.wfh-wall__stat.is-afk strong { color: #d97706; }
+.wfh-wall__stat.is-onBreak strong { color: #0284c7; }
+.wfh-wall__stat.is-screenOff strong { color: #ea580c; }
+.wfh-wall__stat.is-geofenceAlerts strong { color: #e11d48; }
 
 .wfh-wall__alert {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 28px 14px;
-  border: 1px solid rgba(251, 113, 133, 0.35);
+  margin: 0 24px 14px;
+  border: 1px solid rgba(225, 29, 72, 0.32);
   border-radius: 10px;
   padding: 12px 14px;
-  background: rgba(127, 29, 29, 0.35);
-  color: #fecdd3;
+  background: rgba(225, 29, 72, 0.1);
+  color: #be123c;
   font-weight: 700;
 }
 
-.wfh-wall__grid-layout {
+:global(.dark) .wfh-wall__alert {
+  color: #fecdd3;
+}
+
+.wfh-wall__layout {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-  gap: 16px;
-  padding-bottom: 24px;
+  grid-template-columns: minmax(270px, 340px) minmax(0, 1fr) minmax(300px, 360px);
+  gap: 14px;
+  padding-bottom: 20px;
+  background: var(--wall-bg);
 }
 
 .wfh-wall__roster,
-.wfh-wall__monitor-bank,
 .wfh-wall__viewer,
-.wfh-wall__details,
+.wfh-wall__side,
 .wfh-wall__detail-card {
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--wall-border);
   border-radius: 12px;
-  background: #0b1628;
+  background: var(--wall-panel);
 }
 
-.wfh-wall__panel-title,
-.wfh-wall__bank-toolbar,
-.wfh-wall__viewer-header {
+.wfh-wall__side {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  border: 0;
+  background: transparent;
+}
+
+.wfh-wall__panel-head,
+.wfh-wall__viewer-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  padding: 14px;
+  border-bottom: 1px solid var(--wall-border);
 }
 
-.wfh-wall__panel-title strong,
-.wfh-wall__bank-toolbar strong {
+.wfh-wall__panel-head strong,
+.wfh-wall__viewer-head h2 {
+  color: var(--wall-text);
+}
+
+.wfh-wall__panel-head strong {
   display: block;
-  color: #f8fafc;
   font-size: 15px;
 }
 
-.wfh-wall__panel-title span:not(.wfh-wall__pulse),
-.wfh-wall__bank-toolbar span {
-  color: #93a4bb;
+.wfh-wall__panel-head span:not(.wfh-wall__pulse),
+.wfh-wall__viewer-head p,
+.wfh-wall__viewer-head span {
+  color: var(--wall-muted);
   font-size: 12px;
 }
 
-.wfh-wall__pulse {
+.wfh-wall__viewer-head h2 {
+  margin-top: 2px;
+  font-size: clamp(20px, 2vw, 28px);
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.wfh-wall__pulse,
+.wfh-wall__state-dot,
+.wfh-wall__live-dot {
   width: 10px;
   height: 10px;
   border-radius: 999px;
   background: #64748b;
 }
 
-.wfh-wall__pulse.live {
-  background: #34d399;
-  box-shadow: 0 0 0 6px rgba(52, 211, 153, 0.12);
+.wfh-wall__pulse.live,
+.wfh-wall__live-dot.connected {
+  background: #10b981;
+  box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.14);
 }
 
 .wfh-wall__employee-list {
   display: grid;
   gap: 8px;
-  max-height: 68dvh;
+  max-height: min(64dvh, 720px);
   overflow: auto;
-  padding: 12px;
+  padding: 10px;
 }
 
 .wfh-wall__employee {
@@ -823,14 +848,14 @@ onBeforeUnmount(() => {
   width: 100%;
   border: 1px solid transparent;
   border-radius: 10px;
-  padding: 12px;
-  background: #121f33;
+  padding: 11px;
+  background: var(--wall-panel-strong);
   text-align: left;
 }
 
 .wfh-wall__employee.selected {
-  border-color: #60a5fa;
-  background: #162947;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
 }
 
 .wfh-wall__employee-main,
@@ -838,34 +863,25 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.wfh-wall__employee-main strong,
-.wfh-wall__screen-tile footer strong {
+.wfh-wall__employee-main strong {
   display: block;
   overflow: hidden;
-  color: #f8fafc;
+  color: var(--wall-text);
   font-size: 14px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .wfh-wall__employee-main small,
-.wfh-wall__employee-side small,
-.wfh-wall__screen-tile footer small {
+.wfh-wall__employee-side small {
   display: block;
   margin-top: 3px;
-  color: #8fa1b8;
+  color: var(--wall-muted);
   font-size: 12px;
 }
 
 .wfh-wall__employee-side {
   text-align: right;
-}
-
-.wfh-wall__state-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: #94a3b8;
 }
 
 .wfh-wall__badge {
@@ -879,154 +895,94 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.state-active { background-color: #10b981; color: #06251a; }
+.state-active { background-color: #10b981; color: #042318; }
 .state-break { background-color: #38bdf8; color: #082f49; }
 .state-afk { background-color: #f59e0b; color: #231600; }
 .state-screen { background-color: #fb923c; color: #2d1604; }
 .state-offline { background-color: #f43f5e; color: #fff1f2; }
 .state-neutral { background-color: #64748b; color: #f8fafc; }
 
-.wfh-wall__monitor-bank {
-  min-width: 0;
-}
-
-.wfh-wall__screen-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-  max-height: 68dvh;
-  overflow: auto;
-  padding: 14px;
-}
-
-.wfh-wall__screen-tile {
-  min-width: 0;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 12px;
-  background: #111d30;
-  overflow: hidden;
-  cursor: pointer;
-}
-
-.wfh-wall__screen-tile.selected {
-  border-color: #67e8f9;
-  box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.14);
-}
-
-.wfh-wall__screen-frame,
-.wfh-wall__large-frame {
+.wfh-wall__video-frame {
   position: relative;
   display: grid;
   place-items: center;
-  background: #020617;
-}
-
-.wfh-wall__screen-frame {
+  min-height: min(66dvh, 760px);
   aspect-ratio: 16 / 9;
-}
-
-.wfh-wall__screen-frame img,
-.wfh-wall__large-frame img,
-.wfh-wall__thumbs img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.wfh-wall__empty-frame {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  padding: 24px;
-  color: #8fa1b8;
-  text-align: center;
-}
-
-.wfh-wall__empty-frame i {
-  color: #38bdf8;
-  font-size: 30px;
-}
-
-.wfh-wall__empty-frame strong {
-  color: #f8fafc;
-  font-size: 18px;
-}
-
-.wfh-wall__screen-tile footer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-}
-
-.wfh-wall__focus {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 16px;
-  padding-bottom: 24px;
-}
-
-.wfh-wall__viewer-header p,
-.wfh-wall__viewer-header span {
-  color: #93a4bb;
-  font-size: 12px;
-}
-
-.wfh-wall__viewer-header h2 {
-  margin-top: 2px;
-  color: #f8fafc;
-  font-size: clamp(20px, 2vw, 30px);
-  font-weight: 800;
-  line-height: 1.1;
-}
-
-.wfh-wall__large-frame {
-  min-height: min(68dvh, 760px);
-  aspect-ratio: 16 / 9;
-  margin: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  margin: 14px;
+  border: 1px solid var(--wall-border);
   border-radius: 12px;
+  background: var(--wall-video);
   overflow: hidden;
 }
 
-.wfh-wall__frame-caption {
+.wfh-wall__video-frame video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #020617;
+}
+
+.wfh-wall__video-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--wall-muted);
+  text-align: center;
+}
+
+.wfh-wall__video-empty i {
+  color: #0284c7;
+  font-size: 34px;
+}
+
+:global(.dark) .wfh-wall__video-empty i {
+  color: #38bdf8;
+}
+
+.wfh-wall__video-empty strong {
+  color: var(--wall-text);
+  font-size: 18px;
+}
+
+.wfh-wall__live-caption {
   position: absolute;
   right: 14px;
   bottom: 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: rgba(2, 6, 23, 0.78);
-}
-
-.wfh-wall__frame-caption span {
-  color: #93a4bb;
-  font-size: 12px;
-}
-
-.wfh-wall__frame-caption strong {
-  color: #f8fafc;
-  font-size: 12px;
-}
-
-.wfh-wall__details {
   display: grid;
-  gap: 12px;
-  align-content: start;
-  border: 0;
-  background: transparent;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 4px 8px;
+  max-width: min(460px, calc(100% - 28px));
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: color-mix(in srgb, var(--wall-panel) 88%, transparent);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+}
+
+.wfh-wall__live-caption small {
+  grid-column: 2;
+  overflow: hidden;
+  color: var(--wall-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wfh-wall__live-caption strong {
+  color: var(--wall-text);
+  font-size: 13px;
 }
 
 .wfh-wall__detail-card {
-  padding: 16px;
+  padding: 14px;
 }
 
 .wfh-wall__detail-card h3 {
-  color: #f8fafc;
+  color: var(--wall-text);
   font-size: 15px;
   font-weight: 800;
 }
@@ -1034,7 +990,7 @@ onBeforeUnmount(() => {
 .wfh-wall__detail-card dl {
   display: grid;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .wfh-wall__detail-card dl div {
@@ -1044,45 +1000,61 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.wfh-wall__detail-card dt {
-  color: #93a4bb;
+.wfh-wall__detail-card dt,
+.wfh-wall__events small {
+  color: var(--wall-muted);
   font-size: 12px;
 }
 
 .wfh-wall__detail-card dd {
-  color: #f8fafc;
+  color: var(--wall-text);
   font-size: 13px;
   font-weight: 800;
 }
 
-.wfh-wall__thumbs {
+.wfh-wall__mini-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
 
-.wfh-wall__thumbs button {
-  overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 8px;
-  background: #020617;
+.wfh-wall__mini-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 82px;
+  border: 1px solid var(--wall-border);
+  border-radius: 10px;
+  background: var(--wall-video);
 }
 
-.wfh-wall__thumbs img {
-  aspect-ratio: 16 / 9;
+.wfh-wall__mini-tile.selected {
+  border-color: #3b82f6;
 }
 
-.wfh-wall__thumbs span {
-  display: block;
-  padding: 6px;
-  color: #93a4bb;
+.wfh-wall__mini-tile .wfh-wall__state-dot {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+}
+
+.wfh-wall__mini-tile strong {
+  color: var(--wall-text);
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.wfh-wall__mini-tile small {
+  color: var(--wall-muted);
   font-size: 11px;
 }
 
 .wfh-wall__events {
   display: grid;
   gap: 10px;
+  max-height: 280px;
+  overflow: auto;
   margin-top: 12px;
 }
 
@@ -1097,71 +1069,24 @@ onBeforeUnmount(() => {
   height: 8px;
   margin-top: 6px;
   border-radius: 999px;
-  background: #38bdf8;
+  background: #0284c7;
 }
 
 .wfh-wall__events strong {
   display: block;
-  color: #e2e8f0;
+  color: var(--wall-text);
   font-size: 13px;
-}
-
-.wfh-wall__events small {
-  color: #8fa1b8;
-  font-size: 12px;
 }
 
 .wfh-wall__events .empty {
   display: block;
-  color: #8fa1b8;
+  color: var(--wall-muted);
   font-size: 13px;
-}
-
-.wfh-wall__activity {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
-  gap: 16px;
-  padding-bottom: 24px;
-}
-
-.wfh-wall__location-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.wfh-wall__location-grid article {
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 10px;
-  padding: 12px;
-  background: #111d30;
-}
-
-.wfh-wall__location-grid strong,
-.wfh-wall__location-grid span,
-.wfh-wall__location-grid small {
-  display: block;
-}
-
-.wfh-wall__location-grid strong {
-  color: #e2e8f0;
-  font-size: 13px;
-}
-
-.wfh-wall__location-grid span,
-.wfh-wall__location-grid small,
-.wfh-wall__plain-text,
-.wfh-wall__thumbs p,
-.wfh-wall__location-grid p {
-  color: #93a4bb;
-  font-size: 13px;
-  line-height: 1.6;
 }
 
 .wfh-wall:fullscreen {
   overflow: auto;
-  background: #07111f;
+  background: var(--wall-bg);
 }
 
 .wfh-wall:fullscreen .wfh-wall__shell {
@@ -1171,45 +1096,47 @@ onBeforeUnmount(() => {
   border-radius: 0;
 }
 
-@media (max-width: 1280px) {
-  .wfh-wall__stats {
-    grid-template-columns: repeat(3, minmax(120px, 1fr));
+@media (max-width: 1500px) {
+  .wfh-wall__layout {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
   }
 
-  .wfh-wall__grid-layout,
-  .wfh-wall__focus,
-  .wfh-wall__activity {
+  .wfh-wall__side {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .wfh-wall__stats {
+    grid-template-columns: repeat(3, minmax(110px, 1fr));
+  }
+
+  .wfh-wall__layout,
+  .wfh-wall__side {
     grid-template-columns: 1fr;
   }
 
-  .wfh-wall__employee-list,
-  .wfh-wall__screen-grid {
+  .wfh-wall__employee-list {
     max-height: none;
   }
 }
 
 @media (max-width: 760px) {
-  .wfh-wall__shell {
-    border-radius: 10px;
-  }
-
   .wfh-wall__header,
-  .wfh-wall__bank-toolbar,
-  .wfh-wall__viewer-header {
+  .wfh-wall__viewer-head {
     align-items: stretch;
     flex-direction: column;
   }
 
   .wfh-wall__actions,
-  .wfh-wall__button-row,
-  .wfh-wall__tabs {
+  .wfh-wall__button-row {
     width: 100%;
   }
 
   .wfh-wall__search,
   .wfh-wall__date,
-  .wfh-wall__button,
-  .wfh-wall__tabs button {
+  .wfh-wall__button {
     flex: 1 1 100%;
     width: 100%;
   }
@@ -1218,12 +1145,9 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .wfh-wall__screen-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .wfh-wall__large-frame {
+  .wfh-wall__video-frame {
     min-height: 320px;
+    aspect-ratio: auto;
   }
 }
 </style>

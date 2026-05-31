@@ -120,6 +120,30 @@
           </article>
 
           <article class="wfh-wall__detail-card">
+            <div class="wfh-wall__card-head">
+              <h3>Current Locations</h3>
+              <span>{{ locationSessions.length }} with GPS</span>
+            </div>
+            <div ref="mapEl" class="wfh-wall__map"></div>
+            <div class="wfh-wall__location-list">
+              <button
+                v-for="session in locationSessions"
+                :key="`loc-${session.id}`"
+                type="button"
+                :class="{ selected: selectedSessionId === session.id }"
+                @click="selectSession(session.id)"
+              >
+                <span :class="['wfh-wall__state-dot', stateClass(session.state)]"></span>
+                <span>
+                  <strong>{{ session.employee?.name || 'Unknown employee' }}</strong>
+                  <small>{{ session.lastLocation?.status || session.lastLocation?.label || 'Location available' }}</small>
+                </span>
+              </button>
+              <p v-if="!locationSessions.length">No employee location pings yet.</p>
+            </div>
+          </article>
+
+          <article class="wfh-wall__detail-card">
             <h3>Screen Matrix</h3>
             <div class="wfh-wall__mini-grid">
               <button
@@ -176,6 +200,7 @@ const props = defineProps({
 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 const wallRoot = ref(null);
 const liveVideo = ref(null);
+const mapEl = ref(null);
 const selectedDate = ref(props.initialDate || new Date().toISOString().slice(0, 10));
 const search = ref('');
 const sessions = ref([]);
@@ -195,6 +220,9 @@ const isAutoRefreshing = ref(false);
 const refreshTimer = ref(null);
 const signalTimer = ref(null);
 const searchTimer = ref(null);
+const leafletReady = ref(false);
+let locationMap = null;
+let locationLayer = null;
 
 const statCards = computed(() => [
   { key: 'total', label: 'Total', value: stats.value.total || 0 },
@@ -207,6 +235,12 @@ const statCards = computed(() => [
 
 const selectedSession = computed(() => {
   return selectedDetails.value || sessions.value.find((session) => session.id === selectedSessionId.value) || null;
+});
+
+const locationSessions = computed(() => {
+  return sessions.value.filter((session) => {
+    return Number.isFinite(Number(session.lastLocation?.lat)) && Number.isFinite(Number(session.lastLocation?.lng));
+  });
 });
 
 const liveStatusTitle = computed(() => {
@@ -458,6 +492,120 @@ const stopLiveScreen = async ({ report = true, resetStatus = true } = {}) => {
   }
 };
 
+const loadLeaflet = async () => {
+  if (window.L) {
+    leafletReady.value = true;
+    return;
+  }
+
+  if (!document.querySelector('link[data-wfh-leaflet]')) {
+    const link = document.createElement('link');
+    link.dataset.wfhLeaflet = 'true';
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tT0L0rGfF8IuF9G+Gx3Y=';
+    link.crossOrigin = '';
+    document.head.appendChild(link);
+  }
+
+  await new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-wfh-leaflet]');
+
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', reject, { once: true });
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.dataset.wfhLeaflet = 'true';
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+    script.crossOrigin = '';
+    script.onload = resolve;
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+
+  leafletReady.value = true;
+};
+
+const renderLocationMap = async () => {
+  if (!leafletReady.value || !window.L || !mapEl.value) return;
+
+  if (!locationMap) {
+    locationMap = window.L.map(mapEl.value, {
+      zoomControl: true,
+      scrollWheelZoom: true,
+      attributionControl: false,
+    });
+
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(locationMap);
+
+    locationLayer = window.L.layerGroup().addTo(locationMap);
+  }
+
+  locationLayer.clearLayers();
+
+  const points = locationSessions.value.map((session) => {
+    return {
+      session,
+      lat: Number(session.lastLocation.lat),
+      lng: Number(session.lastLocation.lng),
+    };
+  });
+
+  if (!points.length) {
+    locationMap.setView([14.5995, 120.9842], 11);
+    setTimeout(() => locationMap?.invalidateSize(true), 120);
+    return;
+  }
+
+  const bounds = [];
+
+  points.forEach(({ session, lat, lng }) => {
+    bounds.push([lat, lng]);
+
+    const marker = window.L.circleMarker([lat, lng], {
+      radius: selectedSessionId.value === session.id ? 11 : 8,
+      color: selectedSessionId.value === session.id ? '#2563eb' : '#0f766e',
+      weight: 3,
+      fillColor: selectedSessionId.value === session.id ? '#93c5fd' : '#5eead4',
+      fillOpacity: 0.95,
+    }).addTo(locationLayer);
+
+    marker.bindPopup(`
+      <div style="min-width: 180px; font-family: Inter, ui-sans-serif, system-ui;">
+        <div style="font-weight: 800; color: #0f172a;">${escapeHtml(session.employee?.name || 'Unknown employee')}</div>
+        <div style="margin-top: 3px; color: #64748b; font-size: 12px;">${escapeHtml(session.employee?.empCode || '')}</div>
+        <div style="margin-top: 6px; color: #0f766e; font-size: 12px; font-weight: 700;">${escapeHtml(session.lastLocation?.status || session.lastLocation?.label || 'Location available')}</div>
+      </div>
+    `);
+
+    marker.on('click', () => selectSession(session.id));
+  });
+
+  if (bounds.length === 1) {
+    locationMap.setView(bounds[0], 15);
+  } else {
+    locationMap.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
+  }
+
+  setTimeout(() => locationMap?.invalidateSize(true), 120);
+};
+
+const escapeHtml = (value = '') => {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+};
+
 const toggleFullscreen = async () => {
   if (!document.fullscreenElement) {
     await wallRoot.value?.requestFullscreen?.();
@@ -523,9 +671,18 @@ watch(search, () => {
   searchTimer.value = window.setTimeout(() => loadSessions(), 350);
 });
 
+watch([sessions, selectedSessionId, leafletReady], () => {
+  nextTick(() => renderLocationMap());
+}, { deep: true });
+
 onMounted(async () => {
   document.addEventListener('fullscreenchange', syncFullscreenState);
   await loadSessions();
+  loadLeaflet()
+    .then(() => nextTick(() => renderLocationMap()))
+    .catch(() => {
+      leafletReady.value = false;
+    });
   refreshTimer.value = window.setInterval(() => {
     loadSessions({ silent: true });
     loadSelectedDetails({ silent: true });
@@ -537,6 +694,11 @@ onBeforeUnmount(() => {
   window.clearInterval(refreshTimer.value);
   window.clearTimeout(searchTimer.value);
   stopLiveScreen({ report: true });
+  if (locationMap) {
+    locationMap.remove();
+    locationMap = null;
+    locationLayer = null;
+  }
 });
 </script>
 
@@ -987,6 +1149,19 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
+.wfh-wall__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.wfh-wall__card-head span {
+  color: var(--wall-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .wfh-wall__detail-card dl {
   display: grid;
   gap: 10px;
@@ -1010,6 +1185,58 @@ onBeforeUnmount(() => {
   color: var(--wall-text);
   font-size: 13px;
   font-weight: 800;
+}
+
+.wfh-wall__map {
+  height: 240px;
+  margin-top: 12px;
+  border: 1px solid var(--wall-border);
+  border-radius: 10px;
+  background: var(--wall-video);
+  overflow: hidden;
+}
+
+.wfh-wall__location-list {
+  display: grid;
+  gap: 8px;
+  max-height: 170px;
+  overflow: auto;
+  margin-top: 10px;
+}
+
+.wfh-wall__location-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px;
+  background: var(--wall-panel-strong);
+  text-align: left;
+}
+
+.wfh-wall__location-list button.selected {
+  border-color: #3b82f6;
+}
+
+.wfh-wall__location-list strong,
+.wfh-wall__location-list small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wfh-wall__location-list strong {
+  color: var(--wall-text);
+  font-size: 13px;
+}
+
+.wfh-wall__location-list small,
+.wfh-wall__location-list p {
+  color: var(--wall-muted);
+  font-size: 12px;
 }
 
 .wfh-wall__mini-grid {

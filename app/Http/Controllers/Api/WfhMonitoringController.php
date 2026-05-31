@@ -99,6 +99,9 @@ class WfhMonitoringController extends Controller
 
         $token = (string) str()->uuid();
         $meta = $session->meta ?? [];
+
+        unset($meta['live_snapshots']);
+
         $meta['live_screen'] = [
             'token' => $token,
             'status' => 'requested',
@@ -108,7 +111,10 @@ class WfhMonitoringController extends Controller
             'answer' => null,
         ];
 
-        $session->update(['meta' => $meta]);
+        $session->update([
+            'meta' => $meta,
+            'screenshot_request_pending' => false,
+        ]);
         $this->logEvent($session, 'live_screen_requested', 'Supervisor requested live screen view');
 
         return response()->json(['token' => $token]);

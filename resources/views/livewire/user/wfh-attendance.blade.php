@@ -11,6 +11,7 @@
     liveSnapshotUploading: false,
     liveScreenPeer: null,
     liveScreenToken: null,
+    liveScreenAnswering: false,
     liveMediaPeer: null,
     liveMediaToken: null,
     liveMediaStream: null,
@@ -592,6 +593,10 @@
         });
     },
     async checkLiveScreenRequest() {
+        if (this.liveScreenAnswering) {
+            return;
+        }
+
         const screenStream = this.screenStream || this.monitoringRuntime().screenStream;
 
         if (!screenStream || !screenStream.getVideoTracks().some((track) => track.readyState === 'live') || !window.RTCPeerConnection) {
@@ -604,24 +609,41 @@
             return;
         }
 
-        this.liveScreenToken = request.token;
+        this.liveScreenAnswering = true;
+        let peer = null;
 
-        if (this.liveScreenPeer) {
-            this.liveScreenPeer.close();
+        try {
+            this.liveScreenToken = request.token;
+
+            if (this.liveScreenPeer) {
+                this.liveScreenPeer.close();
+            }
+
+            this.screenStream = screenStream;
+            peer = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+            });
+
+            screenStream.getTracks().forEach((track) => peer.addTrack(track, screenStream));
+            await peer.setRemoteDescription(new RTCSessionDescription(request.offer));
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+            await this.waitForIceGathering(peer);
+            await $wire.publishLiveAnswer(request.token, peer.localDescription.toJSON());
+            this.liveScreenPeer = peer;
+        } catch (error) {
+            if (peer) {
+                peer.close();
+            }
+
+            this.liveScreenPeer = null;
+            this.liveScreenToken = null;
+            await $wire.recordMonitoringSignal('live_screen_answer_failed', 'Employee browser could not answer live screen request', {
+                message: error?.message ?? 'Live screen answer failed',
+            });
+        } finally {
+            this.liveScreenAnswering = false;
         }
-
-        this.screenStream = screenStream;
-        const peer = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-        });
-
-        screenStream.getTracks().forEach((track) => peer.addTrack(track, screenStream));
-        await peer.setRemoteDescription(new RTCSessionDescription(request.offer));
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
-        await this.waitForIceGathering(peer);
-        await $wire.publishLiveAnswer(request.token, peer.localDescription.toJSON());
-        this.liveScreenPeer = peer;
     },
     async checkLiveMediaRequest() {
         if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {

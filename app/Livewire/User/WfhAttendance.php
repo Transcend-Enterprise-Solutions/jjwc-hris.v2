@@ -601,6 +601,37 @@ class WfhAttendance extends Component
         $this->refreshMonitoringState();
     }
 
+    public function failLiveScreenAnswer($token, $message = null)
+    {
+        $session = $this->getOpenMonitoringSession();
+
+        if (! $session || ! $token) {
+            return;
+        }
+
+        $meta = $session->meta ?? [];
+        $liveScreen = $meta['live_screen'] ?? [];
+
+        if (($liveScreen['token'] ?? null) !== $token) {
+            return;
+        }
+
+        $message = is_string($message) && $message !== ''
+            ? str($message)->limit(240)->toString()
+            : 'Employee browser could not answer live screen request.';
+
+        $liveScreen['status'] = 'answer_failed';
+        $liveScreen['error'] = $message;
+        $liveScreen['failed_at'] = now()->toIso8601String();
+        $meta['live_screen'] = $liveScreen;
+
+        $session->update(['meta' => $meta]);
+        $this->logMonitoringEvent($session, 'live_screen_answer_failed', 'Employee browser could not answer live screen request', [
+            'message' => $message,
+        ]);
+        $this->refreshMonitoringState();
+    }
+
     public function recordScreenSnapshot($imageData, $captureType = 'periodic')
     {
         $session = $this->getOpenMonitoringSession();

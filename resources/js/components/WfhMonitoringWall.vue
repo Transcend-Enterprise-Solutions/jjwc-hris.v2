@@ -40,7 +40,18 @@
         <span>{{ errorMessage }}</span>
       </div>
 
-      <main class="wfh-wall__layout">
+      <nav class="wfh-wall__tabs" aria-label="WFH monitoring workspace">
+        <button type="button" :class="{ active: activeView === 'monitor' }" @click="activeView = 'monitor'">
+          <i class="bi bi-display"></i>
+          Live Monitor
+        </button>
+        <button type="button" :class="{ active: activeView === 'locations' }" @click="activeView = 'locations'">
+          <i class="bi bi-geo-alt"></i>
+          Location Map
+        </button>
+      </nav>
+
+      <main v-show="activeView === 'monitor'" class="wfh-wall__layout">
         <aside class="wfh-wall__roster">
           <div class="wfh-wall__panel-head">
             <div>
@@ -120,27 +131,28 @@
           </article>
 
           <article class="wfh-wall__detail-card">
-            <div class="wfh-wall__card-head">
-              <h3>Current Locations</h3>
-              <span>{{ locationSessions.length }} with GPS</span>
-            </div>
-            <div ref="mapEl" class="wfh-wall__map"></div>
-            <div class="wfh-wall__location-list">
-              <button
-                v-for="session in locationSessions"
-                :key="`loc-${session.id}`"
-                type="button"
-                :class="{ selected: selectedSessionId === session.id }"
-                @click="selectSession(session.id)"
-              >
-                <span :class="['wfh-wall__state-dot', stateClass(session.state)]"></span>
-                <span>
-                  <strong>{{ session.employee?.name || 'Unknown employee' }}</strong>
-                  <small>{{ session.lastLocation?.status || session.lastLocation?.label || 'Location available' }}</small>
-                </span>
-              </button>
-              <p v-if="!locationSessions.length">No employee location pings yet.</p>
-            </div>
+            <h3>Connection</h3>
+            <ol class="wfh-wall__steps">
+              <li :class="{ done: Boolean(selectedSession) }">
+                <i class="bi bi-person-check"></i>
+                <span>Employee selected</span>
+              </li>
+              <li :class="{ done: Boolean(selectedSession?.screenShareActive) }">
+                <i class="bi bi-display"></i>
+                <span>Screen sharing active</span>
+              </li>
+              <li :class="{ done: Boolean(liveSessionId) }">
+                <i class="bi bi-send"></i>
+                <span>Live request sent</span>
+              </li>
+              <li :class="{ done: liveConnected }">
+                <i class="bi bi-broadcast"></i>
+                <span>Live stream connected</span>
+              </li>
+            </ol>
+            <p class="wfh-wall__helper-text">
+              Keep the employee HRIS tab open after Time In. If this stays on waiting, hard refresh the employee page once so the latest answer handler loads.
+            </p>
           </article>
 
           <article class="wfh-wall__detail-card">
@@ -175,12 +187,123 @@
           </article>
         </aside>
       </main>
+
+      <main v-show="activeView === 'locations'" class="wfh-wall__location-layout">
+        <section class="wfh-wall__map-panel wfh-wall__map-panel--immersive">
+          <div class="wfh-wall__viewer-head">
+            <div>
+              <p>Employee Locations</p>
+              <h2>Current GPS Map</h2>
+              <span>{{ locationSessions.length }} employee{{ locationSessions.length === 1 ? '' : 's' }} reporting location</span>
+            </div>
+            <div class="wfh-wall__button-row">
+              <button class="wfh-wall__button wfh-wall__button--muted" type="button" @click="fitLocationMap">
+                <i class="bi bi-crosshair"></i>
+                Recenter
+              </button>
+              <button class="wfh-wall__button wfh-wall__button--muted" type="button" @click="selectLatestLocation" :disabled="!latestLocationSession">
+                <i class="bi bi-broadcast-pin"></i>
+                Latest ping
+              </button>
+              <a v-if="selectedMapsUrl" class="wfh-wall__button wfh-wall__button--primary" :href="selectedMapsUrl" target="_blank" rel="noopener">
+                <i class="bi bi-box-arrow-up-right"></i>
+                Open maps
+              </a>
+            </div>
+          </div>
+
+          <div class="wfh-wall__map-metrics">
+            <article v-for="metric in locationMetricCards" :key="metric.key" :class="['wfh-wall__map-metric', `is-${metric.key}`]">
+              <span>{{ metric.label }}</span>
+              <strong>{{ metric.value }}</strong>
+            </article>
+          </div>
+
+          <div class="wfh-wall__map-wrap">
+            <div ref="mapEl" class="wfh-wall__map"></div>
+            <div v-if="!locationSessions.length" class="wfh-wall__map-empty">
+              <i class="bi bi-geo-alt"></i>
+              <strong>No GPS pings yet</strong>
+              <span>Locations appear after the employee browser sends a monitoring heartbeat.</span>
+            </div>
+            <div class="wfh-wall__map-legend">
+              <span><i class="inside"></i> Inside</span>
+              <span><i class="outside"></i> Outside</span>
+              <span><i class="unknown"></i> Unknown</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="wfh-wall__location-side">
+          <article class="wfh-wall__detail-card">
+            <div class="wfh-wall__card-head">
+              <h3>Map Roster</h3>
+              <span>{{ locationSessions.length }} online</span>
+            </div>
+            <div class="wfh-wall__location-list wfh-wall__location-list--large">
+              <button
+                v-for="session in locationSessions"
+                :key="`loc-${session.id}`"
+                type="button"
+                :class="{ selected: selectedSessionId === session.id }"
+                @click="selectLocationSession(session.id)"
+              >
+                <span :class="['wfh-wall__state-dot', stateClass(session.state)]"></span>
+                <span>
+                  <strong>{{ session.employee?.name || 'Unknown employee' }}</strong>
+                  <small>{{ locationSummary(session) }}</small>
+                </span>
+                <em>{{ relativeTime(session.lastLocation?.occurredAt || session.lastActivityAt) }}</em>
+              </button>
+              <p v-if="!locationSessions.length">No employee location pings yet.</p>
+            </div>
+          </article>
+
+          <article class="wfh-wall__detail-card">
+            <div class="wfh-wall__card-head">
+              <h3>Selected Location</h3>
+              <span>{{ selectedLocation ? relativeTime(selectedLocation.occurredAt || selectedSession?.lastActivityAt) : '-' }}</span>
+            </div>
+            <dl>
+              <div><dt>Employee</dt><dd>{{ selectedSession?.employee?.name || '-' }}</dd></div>
+              <div><dt>Status</dt><dd>{{ selectedLocation?.status || '-' }}</dd></div>
+              <div><dt>Latitude</dt><dd>{{ coordinateLabel(selectedLocation?.lat) }}</dd></div>
+              <div><dt>Longitude</dt><dd>{{ coordinateLabel(selectedLocation?.lng) }}</dd></div>
+              <div><dt>Accuracy</dt><dd>{{ accuracyLabel(selectedLocation?.accuracy) }}</dd></div>
+              <div><dt>Source</dt><dd>{{ selectedLocation?.source || 'Browser GPS' }}</dd></div>
+            </dl>
+            <a v-if="selectedMapsUrl" class="wfh-wall__wide-link" :href="selectedMapsUrl" target="_blank" rel="noopener">
+              <i class="bi bi-map"></i>
+              View selected location
+            </a>
+          </article>
+
+          <article class="wfh-wall__detail-card">
+            <div class="wfh-wall__card-head">
+              <h3>GPS Signal</h3>
+              <span>{{ selectedSession?.geofenceStatus || 'unknown' }}</span>
+            </div>
+            <div class="wfh-wall__signal-card">
+              <div>
+                <strong>{{ selectedSession?.employee?.empCode || '-' }}</strong>
+                <span>{{ selectedSession?.workStatus || 'WFH' }}</span>
+              </div>
+              <div>
+                <strong>{{ duration(selectedSession?.onlineSeconds) }}</strong>
+                <span>Online time</span>
+              </div>
+            </div>
+          </article>
+        </aside>
+      </main>
     </div>
   </section>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 const props = defineProps({
   apiBase: {
@@ -201,6 +324,7 @@ const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribut
 const wallRoot = ref(null);
 const liveVideo = ref(null);
 const mapEl = ref(null);
+const activeView = ref('monitor');
 const selectedDate = ref(props.initialDate || new Date().toISOString().slice(0, 10));
 const search = ref('');
 const sessions = ref([]);
@@ -220,9 +344,10 @@ const isAutoRefreshing = ref(false);
 const refreshTimer = ref(null);
 const signalTimer = ref(null);
 const searchTimer = ref(null);
-const leafletReady = ref(false);
 let locationMap = null;
 let locationLayer = null;
+let locationBounds = null;
+let locationMarkers = new Map();
 
 const statCards = computed(() => [
   { key: 'total', label: 'Total', value: stats.value.total || 0 },
@@ -243,11 +368,41 @@ const locationSessions = computed(() => {
   });
 });
 
+const selectedLocation = computed(() => selectedSession.value?.lastLocation || null);
+
+const latestLocationSession = computed(() => {
+  return [...locationSessions.value].sort((a, b) => {
+    const first = new Date(a.lastLocation?.occurredAt || a.lastActivityAt || 0).getTime();
+    const second = new Date(b.lastLocation?.occurredAt || b.lastActivityAt || 0).getTime();
+
+    return second - first;
+  })[0] || null;
+});
+
+const locationMetricCards = computed(() => {
+  const located = locationSessions.value;
+
+  return [
+    { key: 'located', label: 'Located', value: located.length },
+    { key: 'inside', label: 'Inside', value: located.filter((session) => locationStatusKind(session) === 'inside').length },
+    { key: 'outside', label: 'Outside', value: located.filter((session) => locationStatusKind(session) === 'outside').length },
+    { key: 'unknown', label: 'Unknown', value: located.filter((session) => locationStatusKind(session) === 'unknown').length },
+  ];
+});
+
 const liveStatusTitle = computed(() => {
   if (!selectedSession.value) return 'No employee selected';
   if (liveBusy.value) return 'Connecting live feed';
   if (liveSessionId.value) return 'Waiting for employee browser';
   return 'Live feed not started';
+});
+
+const selectedMapsUrl = computed(() => {
+  const location = selectedLocation.value;
+
+  if (!location?.lat || !location?.lng) return '';
+
+  return `https://www.google.com/maps?q=${encodeURIComponent(`${location.lat},${location.lng}`)}`;
 });
 
 const apiUrl = (path, params = {}) => {
@@ -439,6 +594,12 @@ const pollLiveSignal = async () => {
 
     if (signal?.token !== liveToken.value) return;
 
+    if (signal.status === 'answer_failed') {
+      liveConnected.value = false;
+      liveStatus.value = signal.error || 'Employee browser could not answer the live feed request.';
+      return;
+    }
+
     if (signal.answer && !livePeer.value.currentRemoteDescription) {
       await livePeer.value.setRemoteDescription(new RTCSessionDescription(signal.answer));
       liveStatus.value = 'Connecting live screen stream...';
@@ -492,62 +653,28 @@ const stopLiveScreen = async ({ report = true, resetStatus = true } = {}) => {
   }
 };
 
-const loadLeaflet = async () => {
-  if (window.L) {
-    leafletReady.value = true;
-    return;
-  }
-
-  if (!document.querySelector('link[data-wfh-leaflet]')) {
-    const link = document.createElement('link');
-    link.dataset.wfhLeaflet = 'true';
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tT0L0rGfF8IuF9G+Gx3Y=';
-    link.crossOrigin = '';
-    document.head.appendChild(link);
-  }
-
-  await new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[data-wfh-leaflet]');
-
-    if (existing) {
-      existing.addEventListener('load', resolve, { once: true });
-      existing.addEventListener('error', reject, { once: true });
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.dataset.wfhLeaflet = 'true';
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
-    script.crossOrigin = '';
-    script.onload = resolve;
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-
-  leafletReady.value = true;
-};
-
 const renderLocationMap = async () => {
-  if (!leafletReady.value || !window.L || !mapEl.value) return;
+  if (activeView.value !== 'locations' || !mapEl.value) return;
 
   if (!locationMap) {
-    locationMap = window.L.map(mapEl.value, {
+    locationMap = L.map(mapEl.value, {
       zoomControl: true,
       scrollWheelZoom: true,
       attributionControl: false,
+      preferCanvas: true,
     });
 
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
+      attribution: 'OpenStreetMap',
     }).addTo(locationMap);
 
-    locationLayer = window.L.layerGroup().addTo(locationMap);
+    locationLayer = L.layerGroup().addTo(locationMap);
   }
 
   locationLayer.clearLayers();
+  locationBounds = null;
+  locationMarkers = new Map();
 
   const points = locationSessions.value.map((session) => {
     return {
@@ -568,32 +695,149 @@ const renderLocationMap = async () => {
   points.forEach(({ session, lat, lng }) => {
     bounds.push([lat, lng]);
 
-    const marker = window.L.circleMarker([lat, lng], {
-      radius: selectedSessionId.value === session.id ? 11 : 8,
-      color: selectedSessionId.value === session.id ? '#2563eb' : '#0f766e',
-      weight: 3,
-      fillColor: selectedSessionId.value === session.id ? '#93c5fd' : '#5eead4',
-      fillOpacity: 0.95,
+    const marker = L.marker([lat, lng], {
+      icon: locationMarkerIcon(session, selectedSessionId.value === session.id),
+      riseOnHover: true,
+      keyboard: true,
     }).addTo(locationLayer);
 
-    marker.bindPopup(`
-      <div style="min-width: 180px; font-family: Inter, ui-sans-serif, system-ui;">
-        <div style="font-weight: 800; color: #0f172a;">${escapeHtml(session.employee?.name || 'Unknown employee')}</div>
-        <div style="margin-top: 3px; color: #64748b; font-size: 12px;">${escapeHtml(session.employee?.empCode || '')}</div>
-        <div style="margin-top: 6px; color: #0f766e; font-size: 12px; font-weight: 700;">${escapeHtml(session.lastLocation?.status || session.lastLocation?.label || 'Location available')}</div>
-      </div>
-    `);
+    marker.bindPopup(locationPopupHtml(session), {
+      maxWidth: 340,
+      className: 'wfh-location-popup',
+    });
 
-    marker.on('click', () => selectSession(session.id));
+    marker.on('click', () => selectLocationSession(session.id));
+    locationMarkers.set(session.id, marker);
   });
 
   if (bounds.length === 1) {
     locationMap.setView(bounds[0], 15);
   } else {
-    locationMap.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
+    locationBounds = L.latLngBounds(bounds);
+    locationMap.fitBounds(locationBounds, { padding: [28, 28], maxZoom: 15 });
   }
 
   setTimeout(() => locationMap?.invalidateSize(true), 120);
+};
+
+const locationStatusKind = (session) => {
+  const status = String(session?.lastLocation?.status || session?.geofenceStatus || '').toLowerCase();
+
+  if (status.includes('inside')) return 'inside';
+  if (status.includes('outside')) return 'outside';
+  return 'unknown';
+};
+
+const locationMarkerIcon = (session, selected = false) => {
+  const kind = locationStatusKind(session);
+  const selectedClass = selected ? 'is-selected' : '';
+  const label = escapeHtml(initials(session.employee?.name));
+
+  return L.divIcon({
+    className: 'wfh-location-div-icon',
+    html: `
+      <div class="wfh-map-marker is-${kind} ${selectedClass}">
+        <span class="wfh-map-marker__pulse"></span>
+        <span class="wfh-map-marker__core">${label}</span>
+      </div>
+    `,
+    iconSize: [54, 54],
+    iconAnchor: [27, 27],
+    popupAnchor: [0, -28],
+  });
+};
+
+const locationPopupHtml = (session) => {
+  const location = session.lastLocation || {};
+  const name = escapeHtml(session.employee?.name || 'Unknown employee');
+  const empCode = escapeHtml(session.employee?.empCode || 'No employee ID');
+  const status = escapeHtml(location.status || location.label || 'Location available');
+  const lat = coordinateLabel(location.lat);
+  const lng = coordinateLabel(location.lng);
+  const accuracy = accuracyLabel(location.accuracy);
+  const lastPing = escapeHtml(relativeTime(location.occurredAt || session.lastActivityAt));
+  const mapsUrl = `https://www.google.com/maps?q=${encodeURIComponent(`${location.lat},${location.lng}`)}`;
+  const kind = locationStatusKind(session);
+
+  return `
+    <div class="wfh-map-popup">
+      <div class="wfh-map-popup__header">
+        <div class="wfh-map-popup__avatar">${escapeHtml(initials(session.employee?.name))}</div>
+        <div>
+          <strong>${name}</strong>
+          <span>${empCode}</span>
+        </div>
+      </div>
+      <div class="wfh-map-popup__status is-${kind}">
+        <i></i>
+        <span>${status}</span>
+      </div>
+      <div class="wfh-map-popup__grid">
+        <div><span>Latitude</span><strong>${escapeHtml(lat)}</strong></div>
+        <div><span>Longitude</span><strong>${escapeHtml(lng)}</strong></div>
+        <div><span>Accuracy</span><strong>${escapeHtml(accuracy)}</strong></div>
+        <div><span>Last ping</span><strong>${lastPing}</strong></div>
+      </div>
+      <a class="wfh-map-popup__link" href="${mapsUrl}" target="_blank" rel="noopener noreferrer">View in Google Maps</a>
+    </div>
+  `;
+};
+
+const fitLocationMap = () => {
+  if (!locationMap) {
+    renderLocationMap();
+    return;
+  }
+
+  if (locationBounds?.isValid?.()) {
+    locationMap.fitBounds(locationBounds, { padding: [28, 28], maxZoom: 15 });
+    return;
+  }
+
+  renderLocationMap();
+};
+
+const openSelectedLocationPopup = () => {
+  if (!locationMap || !selectedSessionId.value) return;
+
+  const marker = locationMarkers.get(selectedSessionId.value);
+
+  if (!marker) return;
+
+  marker.openPopup();
+  locationMap.panTo(marker.getLatLng(), { animate: true });
+};
+
+const selectLocationSession = async (sessionId) => {
+  await selectSession(sessionId);
+  await nextTick();
+  await renderLocationMap();
+  openSelectedLocationPopup();
+};
+
+const selectLatestLocation = () => {
+  if (!latestLocationSession.value) return;
+
+  selectLocationSession(latestLocationSession.value.id);
+};
+
+const locationSummary = (session) => {
+  const location = session.lastLocation || {};
+  const accuracy = location.accuracy ? `, ${accuracyLabel(location.accuracy)}` : '';
+
+  return `${location.status || location.label || 'Location available'}${accuracy}`;
+};
+
+const coordinateLabel = (value) => {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number.toFixed(6) : '-';
+};
+
+const accuracyLabel = (value) => {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? `${Math.round(number)}m` : '-';
 };
 
 const escapeHtml = (value = '') => {
@@ -671,18 +915,13 @@ watch(search, () => {
   searchTimer.value = window.setTimeout(() => loadSessions(), 350);
 });
 
-watch([sessions, selectedSessionId, leafletReady], () => {
+watch([sessions, selectedSessionId, activeView], () => {
   nextTick(() => renderLocationMap());
 }, { deep: true });
 
 onMounted(async () => {
   document.addEventListener('fullscreenchange', syncFullscreenState);
   await loadSessions();
-  loadLeaflet()
-    .then(() => nextTick(() => renderLocationMap()))
-    .catch(() => {
-      leafletReady.value = false;
-    });
   refreshTimer.value = window.setInterval(() => {
     loadSessions({ silent: true });
     loadSelectedDetails({ silent: true });
@@ -744,7 +983,9 @@ onBeforeUnmount(() => {
 
 .wfh-wall__header,
 .wfh-wall__stats,
-.wfh-wall__layout {
+.wfh-wall__tabs,
+.wfh-wall__layout,
+.wfh-wall__location-layout {
   padding-left: clamp(14px, 1.5vw, 24px);
   padding-right: clamp(14px, 1.5vw, 24px);
 }
@@ -920,6 +1161,35 @@ onBeforeUnmount(() => {
   color: #fecdd3;
 }
 
+.wfh-wall__tabs {
+  display: flex;
+  gap: 8px;
+  padding-top: 0;
+  padding-bottom: 14px;
+  background: var(--wall-bg);
+}
+
+.wfh-wall__tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 0 14px;
+  background: var(--wall-panel);
+  color: var(--wall-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.wfh-wall__tabs button.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
 .wfh-wall__layout {
   display: grid;
   grid-template-columns: minmax(270px, 340px) minmax(0, 1fr) minmax(300px, 360px);
@@ -928,8 +1198,18 @@ onBeforeUnmount(() => {
   background: var(--wall-bg);
 }
 
+.wfh-wall__location-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 14px;
+  padding-bottom: 20px;
+  background: var(--wall-bg);
+}
+
 .wfh-wall__roster,
 .wfh-wall__viewer,
+.wfh-wall__map-panel,
+.wfh-wall__location-side,
 .wfh-wall__side,
 .wfh-wall__detail-card {
   border: 1px solid var(--wall-border);
@@ -937,7 +1217,8 @@ onBeforeUnmount(() => {
   background: var(--wall-panel);
 }
 
-.wfh-wall__side {
+.wfh-wall__side,
+.wfh-wall__location-side {
   display: grid;
   gap: 12px;
   align-content: start;
@@ -1188,13 +1469,126 @@ onBeforeUnmount(() => {
 }
 
 .wfh-wall__map {
-  height: 240px;
+  position: relative;
+  z-index: 1;
+  height: min(70dvh, 820px);
   margin-top: 12px;
   border: 1px solid var(--wall-border);
-  border-radius: 10px;
+  border-radius: 0 0 12px 12px;
   background: var(--wall-video);
   overflow: hidden;
 }
+
+.wfh-wall__map-panel--immersive {
+  overflow: hidden;
+}
+
+.wfh-wall__map-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--wall-border);
+}
+
+.wfh-wall__map-metric {
+  min-height: 64px;
+  border: 1px solid var(--wall-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--wall-panel-strong);
+}
+
+.wfh-wall__map-metric span {
+  display: block;
+  color: var(--wall-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.wfh-wall__map-metric strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--wall-text);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.wfh-wall__map-metric.is-inside strong { color: #059669; }
+.wfh-wall__map-metric.is-outside strong { color: #e11d48; }
+.wfh-wall__map-metric.is-unknown strong { color: #64748b; }
+
+.wfh-wall__map-wrap {
+  position: relative;
+  background: var(--wall-video);
+}
+
+.wfh-wall__map-panel .wfh-wall__map {
+  margin-top: 0;
+  border-width: 0;
+  border-top: 1px solid var(--wall-border);
+}
+
+.wfh-wall__map-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--wall-muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.wfh-wall__map-empty i {
+  color: #0ea5e9;
+  font-size: 34px;
+}
+
+.wfh-wall__map-empty strong {
+  color: var(--wall-text);
+  font-size: 18px;
+}
+
+.wfh-wall__map-legend {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 420;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100% - 28px);
+  border: 1px solid var(--wall-border);
+  border-radius: 999px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--wall-panel) 88%, transparent);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(12px);
+}
+
+.wfh-wall__map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--wall-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.wfh-wall__map-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.wfh-wall__map-legend i.inside { background: #10b981; }
+.wfh-wall__map-legend i.outside { background: #e11d48; }
+.wfh-wall__map-legend i.unknown { background: #64748b; }
 
 .wfh-wall__location-list {
   display: grid;
@@ -1206,7 +1600,7 @@ onBeforeUnmount(() => {
 
 .wfh-wall__location-list button {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   border: 1px solid transparent;
@@ -1237,6 +1631,281 @@ onBeforeUnmount(() => {
 .wfh-wall__location-list p {
   color: var(--wall-muted);
   font-size: 12px;
+}
+
+.wfh-wall__location-list em {
+  color: var(--wall-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.wfh-wall__location-list--large {
+  max-height: min(50dvh, 520px);
+}
+
+.wfh-wall__wide-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 14px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.wfh-wall__signal-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.wfh-wall__signal-card > div {
+  border: 1px solid var(--wall-border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--wall-panel-strong);
+}
+
+.wfh-wall__signal-card strong,
+.wfh-wall__signal-card span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wfh-wall__signal-card strong {
+  color: var(--wall-text);
+  font-size: 15px;
+}
+
+.wfh-wall__signal-card span {
+  margin-top: 4px;
+  color: var(--wall-muted);
+  font-size: 12px;
+}
+
+:global(.wfh-location-div-icon) {
+  background: transparent;
+  border: 0;
+}
+
+:global(.wfh-map-marker) {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+}
+
+:global(.wfh-map-marker__pulse) {
+  position: absolute;
+  inset: 5px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.28);
+  animation: wfhMapPulse 2s ease-in-out infinite;
+}
+
+:global(.wfh-map-marker__core) {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 3px solid #fff;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #10b981, #22c55e);
+  color: #042318;
+  font-size: 12px;
+  font-weight: 1000;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.32), 0 0 26px rgba(16, 185, 129, 0.46);
+}
+
+:global(.wfh-map-marker.is-outside .wfh-map-marker__pulse) {
+  background: rgba(225, 29, 72, 0.24);
+}
+
+:global(.wfh-map-marker.is-outside .wfh-map-marker__core) {
+  background: linear-gradient(135deg, #fb7185, #e11d48);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.32), 0 0 26px rgba(225, 29, 72, 0.42);
+}
+
+:global(.wfh-map-marker.is-unknown .wfh-map-marker__pulse) {
+  background: rgba(100, 116, 139, 0.28);
+}
+
+:global(.wfh-map-marker.is-unknown .wfh-map-marker__core) {
+  background: linear-gradient(135deg, #94a3b8, #64748b);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.28);
+}
+
+:global(.wfh-map-marker.is-selected .wfh-map-marker__core) {
+  width: 42px;
+  height: 42px;
+  border-color: #dbeafe;
+  outline: 3px solid rgba(37, 99, 235, 0.32);
+}
+
+@keyframes wfhMapPulse {
+  0%, 100% {
+    opacity: 0.62;
+    transform: scale(0.78);
+  }
+  50% {
+    opacity: 0.18;
+    transform: scale(1.2);
+  }
+}
+
+:global(.wfh-location-popup .leaflet-popup-content-wrapper) {
+  border: 1px solid var(--wall-border);
+  border-radius: 16px;
+  padding: 0;
+  background: color-mix(in srgb, var(--wall-panel) 96%, transparent);
+  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(18px);
+}
+
+:global(.wfh-location-popup .leaflet-popup-content) {
+  min-width: 286px;
+  margin: 0;
+}
+
+:global(.wfh-location-popup .leaflet-popup-tip) {
+  background: var(--wall-panel);
+}
+
+:global(.wfh-map-popup) {
+  padding: 16px;
+  color: var(--wall-text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:global(.wfh-map-popup__header) {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--wall-border);
+}
+
+:global(.wfh-map-popup__avatar) {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(16, 185, 129, 0.32);
+  border-radius: 12px;
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+  font-size: 13px;
+  font-weight: 1000;
+}
+
+:global(.wfh-map-popup__header strong),
+:global(.wfh-map-popup__header span) {
+  display: block;
+}
+
+:global(.wfh-map-popup__header strong) {
+  color: var(--wall-text);
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+:global(.wfh-map-popup__header span) {
+  margin-top: 3px;
+  color: var(--wall-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+:global(.wfh-map-popup__status) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: rgba(100, 116, 139, 0.12);
+  color: var(--wall-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+:global(.wfh-map-popup__status i) {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+:global(.wfh-map-popup__status.is-inside) {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+:global(.wfh-map-popup__status.is-outside) {
+  background: rgba(225, 29, 72, 0.12);
+  color: #be123c;
+}
+
+:global(.wfh-map-popup__grid) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+:global(.wfh-map-popup__grid div) {
+  border: 1px solid var(--wall-border);
+  border-radius: 10px;
+  padding: 9px;
+  background: var(--wall-panel-strong);
+}
+
+:global(.wfh-map-popup__grid span),
+:global(.wfh-map-popup__grid strong) {
+  display: block;
+}
+
+:global(.wfh-map-popup__grid span) {
+  color: var(--wall-muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+:global(.wfh-map-popup__grid strong) {
+  margin-top: 4px;
+  color: var(--wall-text);
+  font-size: 12px;
+}
+
+:global(.wfh-map-popup__link) {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-top: 12px;
+  border-radius: 10px;
+  padding: 10px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
 }
 
 .wfh-wall__mini-grid {
@@ -1340,6 +2009,7 @@ onBeforeUnmount(() => {
   }
 
   .wfh-wall__layout,
+  .wfh-wall__location-layout,
   .wfh-wall__side {
     grid-template-columns: 1fr;
   }
@@ -1372,9 +2042,21 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .wfh-wall__tabs {
+    flex-direction: column;
+  }
+
+  .wfh-wall__tabs button {
+    width: 100%;
+  }
+
   .wfh-wall__video-frame {
     min-height: 320px;
     aspect-ratio: auto;
+  }
+
+  .wfh-wall__map {
+    height: 420px;
   }
 }
 </style>

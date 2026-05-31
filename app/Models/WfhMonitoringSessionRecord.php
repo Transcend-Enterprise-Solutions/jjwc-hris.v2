@@ -117,4 +117,9 @@ class WfhMonitoringSessionRecord extends Model
     {
         return $this->hasOne(WfhMonitoringScreenshot::class, 'wfh_monitoring_session_id')->latestOfMany('captured_at');
     }
+
+    public function latestLocationPing(): HasOne
+    {
+        return $this->hasOne(WfhMonitoringLocationPing::class, 'wfh_monitoring_session_id')->latestOfMany('occurred_at');
+    }
 }

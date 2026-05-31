@@ -20,7 +20,7 @@ class WfhMonitoringController extends Controller
         $search = trim((string) $request->query('search', ''));
 
         $sessions = WfhMonitoringSessionRecord::query()
-            ->with(['user.userData', 'latestScreenshot'])
+            ->with(['user.userData', 'latestScreenshot', 'latestLocationPing'])
             ->whereDate('started_at', $date)
             ->when($search, function ($query) use ($search) {
                 $query->whereHas('user', function ($userQuery) use ($search) {
@@ -52,6 +52,7 @@ class WfhMonitoringController extends Controller
             'locationPings' => fn ($query) => $query->latest('occurred_at')->limit(40),
             'screenshots' => fn ($query) => $query->latest('captured_at')->limit(12),
             'latestScreenshot',
+            'latestLocationPing',
         ]);
 
         return response()->json([
@@ -392,12 +393,16 @@ class WfhMonitoringController extends Controller
             return null;
         }
 
+        $latestPing = $session->relationLoaded('latestLocationPing') ? $session->latestLocationPing : null;
+
         return [
             'lat' => (float) $session->last_latitude,
             'lng' => (float) $session->last_longitude,
             'accuracy' => $session->last_location_accuracy ? (float) $session->last_location_accuracy : null,
             'status' => $this->geofenceStatusLabel($session->geofence_status),
             'label' => $session->field_location_label,
+            'source' => $latestPing?->source ?: 'browser',
+            'occurredAt' => optional($latestPing?->occurred_at ?: $session->last_activity_at)->toIso8601String(),
         ];
     }
 

@@ -180,21 +180,31 @@
             </div>
           </article>
 
-          <article class="wfh-wall__detail-card">
+          <article class="wfh-wall__detail-card wfh-wall__activity-card">
             <div class="wfh-wall__card-head">
-              <h3>Recent Activity</h3>
-              <select v-model="activityFilter" class="wfh-wall__activity-filter">
-                <option value="all">All</option>
-                <option value="screen">Screen</option>
-                <option value="location">Location</option>
-                <option value="session">Session</option>
-                <option value="alerts">Alerts</option>
-              </select>
+              <div>
+                <h3>Recent Activity</h3>
+                <span>{{ selectedSession?.employee?.name || 'No employee selected' }}</span>
+              </div>
+              <div class="wfh-wall__activity-tools">
+                <label class="wfh-wall__activity-search">
+                  <i class="bi bi-search"></i>
+                  <input v-model.trim="activitySearch" type="search" placeholder="Search name or activity" />
+                </label>
+                <select v-model="activityFilter" class="wfh-wall__activity-filter">
+                  <option value="all">All</option>
+                  <option value="screen">Screen</option>
+                  <option value="location">Location</option>
+                  <option value="session">Session</option>
+                  <option value="alerts">Alerts</option>
+                </select>
+              </div>
             </div>
             <ol class="wfh-wall__events">
               <li v-for="event in filteredEvents" :key="event.id">
                 <span></span>
                 <div>
+                  <em>{{ selectedSession?.employee?.name || 'Unknown employee' }} · {{ selectedSession?.employee?.empCode || 'No employee ID' }}</em>
                   <strong>{{ event.label || event.type }}</strong>
                   <small>{{ formatTime(event.occurredAt) }}</small>
                 </div>
@@ -376,6 +386,7 @@ const selectedSessionId = ref(null);
 const selectedDetails = ref(null);
 const selectedEvents = ref([]);
 const activityFilter = ref('all');
+const activitySearch = ref('');
 const errorMessage = ref('');
 const liveStatus = ref('Select an active employee to open live monitoring.');
 const liveBusy = ref(false);
@@ -488,11 +499,15 @@ const snapshotEmptyTitle = computed(() => {
 
 const filteredEvents = computed(() => {
   const filter = activityFilter.value;
-
-  if (filter === 'all') return selectedEvents.value;
+  const query = activitySearch.value.toLowerCase();
+  const employeeName = selectedSession.value?.employee?.name || '';
+  const employeeCode = selectedSession.value?.employee?.empCode || '';
 
   return selectedEvents.value.filter((event) => {
-    const haystack = `${event.type || ''} ${event.label || ''}`.toLowerCase();
+    const haystack = `${employeeName} ${employeeCode} ${event.type || ''} ${event.label || ''} ${event.details || ''}`.toLowerCase();
+
+    if (query && !haystack.includes(query)) return false;
+    if (filter === 'all') return true;
 
     if (filter === 'screen') return haystack.includes('screen') || haystack.includes('snapshot');
     if (filter === 'location') return haystack.includes('location') || haystack.includes('geofence') || haystack.includes('gps');
@@ -2234,6 +2249,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .wfh-wall__card-head span {
@@ -2251,6 +2267,42 @@ onBeforeUnmount(() => {
   color: var(--wall-text);
   font-size: 12px;
   font-weight: 800;
+}
+
+.wfh-wall__activity-card {
+  grid-column: 1 / -1;
+}
+
+.wfh-wall__activity-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wfh-wall__activity-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  width: min(280px, 100%);
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--wall-input);
+  color: var(--wall-muted);
+}
+
+.wfh-wall__activity-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--wall-text);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .wfh-wall__detail-card dl {
@@ -2866,7 +2918,7 @@ onBeforeUnmount(() => {
 .wfh-wall__events {
   display: grid;
   gap: 10px;
-  max-height: 280px;
+  max-height: min(48dvh, 520px);
   overflow: auto;
   margin-top: 12px;
 }
@@ -2887,8 +2939,24 @@ onBeforeUnmount(() => {
 
 .wfh-wall__events strong {
   display: block;
+  margin-top: 3px;
   color: var(--wall-text);
   font-size: 13px;
+}
+
+.wfh-wall__events em {
+  display: block;
+  overflow: hidden;
+  color: #2563eb;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+:global(.dark) .wfh-wall__events em {
+  color: #93c5fd;
 }
 
 .wfh-wall__events .empty {
@@ -2950,7 +3018,9 @@ onBeforeUnmount(() => {
 
   .wfh-wall__search,
   .wfh-wall__date,
-  .wfh-wall__button {
+  .wfh-wall__button,
+  .wfh-wall__activity-search,
+  .wfh-wall__activity-filter {
     flex: 1 1 100%;
     width: 100%;
   }

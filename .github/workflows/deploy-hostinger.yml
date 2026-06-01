@@ -1,0 +1,30 @@
+name: Deploy Hostinger
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: hostinger-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Deploy latest master over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          password: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            cd /home/u643761585/domains/beige-snail-607901.hostingersite.com/public_html
+            chmod +x scripts/hostinger-auto-deploy.sh
+            scripts/hostinger-auto-deploy.sh

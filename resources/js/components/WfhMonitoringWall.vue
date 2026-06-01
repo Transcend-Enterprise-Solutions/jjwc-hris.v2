@@ -579,14 +579,10 @@ const loadSessions = async ({ silent = false } = {}) => {
     stats.value = payload.stats || {};
     sessions.value = payload.sessions || [];
 
-    if (!selectedSessionId.value && sessions.value.length) {
-      selectedSessionId.value = sessions.value[0].id;
+    if (selectedSessionId.value && !sessions.value.some((session) => session.id === selectedSessionId.value)) {
+      await stopSnapshotMonitor({ report: true, resetStatus: false });
+      selectedSessionId.value = null;
       await loadSelectedDetails();
-      await startSnapshotMonitor();
-    } else if (selectedSessionId.value && !sessions.value.some((session) => session.id === selectedSessionId.value)) {
-      selectedSessionId.value = sessions.value[0]?.id || null;
-      await loadSelectedDetails();
-      await startSnapshotMonitor();
     }
   } catch (error) {
     if (!silent) errorMessage.value = error.message || 'Unable to load WFH monitoring sessions.';

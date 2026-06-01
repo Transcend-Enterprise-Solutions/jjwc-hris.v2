@@ -701,6 +701,23 @@ class WfhAttendance extends Component
             return null;
         }
 
+        $viewerPingAt = ! empty($liveSnapshots['viewer_ping_at'])
+            ? Carbon::parse($liveSnapshots['viewer_ping_at'])
+            : null;
+
+        if (! $viewerPingAt || $viewerPingAt->lt(now()->subSeconds(15))) {
+            $liveSnapshots['status'] = 'stopped';
+            $liveSnapshots['stopped_at'] = now()->toIso8601String();
+            $liveSnapshots['stop_reason'] = 'viewer_not_selected';
+            $meta['live_snapshots'] = $liveSnapshots;
+            $session->update([
+                'meta' => $meta,
+                'screenshot_request_pending' => false,
+            ]);
+
+            return null;
+        }
+
         return [
             'token' => $liveSnapshots['token'] ?? null,
             'intervalSeconds' => max(3, min(30, (int) ($liveSnapshots['interval_seconds'] ?? 5))),

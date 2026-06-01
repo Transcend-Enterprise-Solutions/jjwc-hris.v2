@@ -240,6 +240,7 @@ class WfhMonitoringController extends Controller
             'interval_seconds' => 5,
             'requested_by' => auth()->id() ?: 'wfh-monitoring-api',
             'requested_at' => now()->toIso8601String(),
+            'viewer_ping_at' => now()->toIso8601String(),
         ];
 
         unset($meta['live_screen'], $meta['live_media']);
@@ -262,6 +263,13 @@ class WfhMonitoringController extends Controller
 
     public function latestScreenshot(WfhMonitoringSessionRecord $session): JsonResponse
     {
+        $meta = $session->meta ?? [];
+
+        if (($meta['live_snapshots']['status'] ?? null) === 'active') {
+            $meta['live_snapshots']['viewer_ping_at'] = now()->toIso8601String();
+            $session->update(['meta' => $meta]);
+        }
+
         $screenshot = $session->latestScreenshot;
 
         return response()->json([

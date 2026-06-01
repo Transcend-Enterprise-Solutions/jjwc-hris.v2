@@ -19,9 +19,9 @@ jobs:
       - name: Deploy latest master over SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.HOSTINGER_SSH_HOST }}
-          port: ${{ secrets.HOSTINGER_SSH_PORT }}
-          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          host: 76.13.199.85
+          port: 65002
+          username: u643761585
           password: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
           script_stop: true
           script: |

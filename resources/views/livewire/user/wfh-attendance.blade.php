@@ -279,6 +279,7 @@
     },
     async startScreenShare() {
         if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            this.screenSurfaceWarning = 'Screen sharing is not supported on this browser or device. For WFH Time In with monitored screen capture, use Chrome or Edge on a desktop/laptop. On mobile, the HRIS page remains responsive for viewing attendance and prompts.';
             $wire.recordMonitoringSignal('screen_share_unavailable', 'Screen sharing is not supported by this browser');
             return false;
         }
@@ -984,37 +985,37 @@
 }" class="w-full">
 
     @if ($scheduleType === 'WFH' || $wfhStatus === 'approved')
-        <div x-show="monitoringFloatOpen" x-cloak wire:ignore.self wire:key="wfh-monitoring-floating-dock" class="fixed bottom-5 left-1/2 w-[min(42rem,calc(100vw-1.5rem))] -translate-x-1/2 rounded-[2rem] border border-white/15 bg-slate-950/90 p-2.5 text-white shadow-[0_24px_80px_rgba(15,23,42,0.55)] backdrop-blur-2xl" style="z-index: 2147483644;">
+        <div x-show="monitoringFloatOpen" x-cloak wire:ignore.self wire:key="wfh-monitoring-floating-dock" class="fixed bottom-3 left-1/2 max-h-[calc(100dvh-1.5rem)] w-[min(42rem,calc(100vw-0.75rem))] -translate-x-1/2 overflow-y-auto rounded-3xl border border-white/15 bg-slate-950/90 p-2 text-white shadow-[0_24px_80px_rgba(15,23,42,0.55)] backdrop-blur-2xl sm:bottom-5 sm:w-[min(42rem,calc(100vw-1.5rem))] sm:rounded-[2rem] sm:p-2.5" style="z-index: 2147483644;">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="relative flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-lg shadow-blue-900/40"
+                <div class="flex min-w-0 items-center gap-3">
+                    <div class="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-lg shadow-blue-900/40"
                         :class="isScreenShareLive() ? 'bg-gradient-to-br from-blue-500 to-cyan-400' : 'bg-slate-800'">
                         <i class="bi bi-display-fill"></i>
                         <span x-show="!isScreenShareLive()" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-rose-300 shadow"></span>
                         <span class="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-slate-950" :class="isScreenShareLive() ? 'bg-emerald-400' : 'bg-amber-400'"></span>
                     </div>
-                    <div>
+                    <div class="min-w-0">
                         <div class="flex flex-wrap items-center gap-2">
                             <p class="text-[11px] font-black uppercase tracking-[0.22em] text-blue-200">WFH monitor</p>
                             <span class="rounded-full px-2 py-0.5 text-[10px] font-bold"
                                 :class="liveScreenRequestPending && !isScreenShareLive() ? 'bg-amber-400 text-slate-950' : 'bg-white/10 text-slate-200'"
                                 x-text="liveScreenRequestPending && !isScreenShareLive() ? 'Live view opening' : (isScreenShareLive() ? 'Auto floating ready' : 'Needs share')"></span>
                         </div>
-                        <div class="mt-1 flex flex-wrap items-end gap-3">
-                            <div class="rounded-2xl bg-emerald-400/10 px-3 py-1.5 ring-1 ring-emerald-300/20">
+                        <div class="mt-1 flex flex-wrap items-end gap-2 sm:gap-3">
+                            <div class="min-w-[9.5rem] rounded-2xl bg-emerald-400/10 px-3 py-1.5 ring-1 ring-emerald-300/20">
                                 <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">Daily online</p>
-                                <p class="font-mono text-2xl font-black leading-none tracking-tight text-emerald-100" x-text="onlineElapsedLabel()"></p>
+                                <p class="font-mono text-xl font-black leading-none tracking-tight text-emerald-100 sm:text-2xl" x-text="onlineElapsedLabel()"></p>
                             </div>
                             <div>
                                 <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Current session</p>
-                                <p class="font-mono text-base font-black leading-none tracking-tight" x-text="elapsedLabel()"></p>
+                                <p class="font-mono text-sm font-black leading-none tracking-tight sm:text-base" x-text="elapsedLabel()"></p>
                             </div>
                             <span class="rounded-full px-2.5 py-1 text-[11px] font-black" :class="monitoringStatusClass()" x-text="monitoringStatusLabel()"></span>
                         </div>
                     </div>
                 </div>
 
-                <div class="flex flex-wrap items-center justify-center gap-2">
+                <div class="flex flex-wrap items-center justify-center gap-2 sm:justify-end">
                     <button type="button" @click="isScreenShareLive() ? stopScreenShare() : startScreenShare()" class="relative flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-blue-950/30 transition"
                         :class="isScreenShareLive() ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-500 hover:bg-amber-400'"
                         :title="isScreenShareLive() ? 'Cancel screen sharing' : 'Start screen sharing'">

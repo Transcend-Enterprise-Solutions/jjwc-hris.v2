@@ -239,13 +239,6 @@
             </div>
           </div>
 
-          <div class="wfh-wall__map-metrics">
-            <article v-for="metric in locationMetricCards" :key="metric.key" :class="['wfh-wall__map-metric', `is-${metric.key}`]">
-              <span>{{ metric.label }}</span>
-              <strong>{{ metric.value }}</strong>
-            </article>
-          </div>
-
           <div class="wfh-wall__map-wrap">
             <div ref="mapEl" class="wfh-wall__map"></div>
             <div v-if="mapLoading" class="wfh-wall__map-overlay">
@@ -469,17 +462,6 @@ const latestLocationSession = computed(() => {
 
     return second - first;
   })[0] || null;
-});
-
-const locationMetricCards = computed(() => {
-  const located = locationSessions.value;
-
-  return [
-    { key: 'located', label: 'Located', value: located.length },
-    { key: 'inside', label: 'Inside', value: located.filter((session) => locationStatusKind(session) === 'inside').length },
-    { key: 'outside', label: 'Outside', value: located.filter((session) => locationStatusKind(session) === 'outside').length },
-    { key: 'unknown', label: 'Unknown', value: located.filter((session) => locationStatusKind(session) === 'unknown').length },
-  ];
 });
 
 const liveStatusTitle = computed(() => {
@@ -1197,7 +1179,7 @@ const loadGoogleMaps = () => {
   return googleMapsLoadPromise;
 };
 
-const mapStyles = [
+const lightMapStyles = [
   { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
   { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
   { featureType: 'water', stylers: [{ color: '#b3d1f5' }] },
@@ -1207,6 +1189,22 @@ const mapStyles = [
   { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#94a3b8' }, { weight: 1.2 }] },
   { featureType: 'administrative.province', elementType: 'geometry.stroke', stylers: [{ color: '#cbd5e1' }, { weight: 0.8 }] },
 ];
+
+const darkMapStyles = [
+  { elementType: 'geometry', stylers: [{ color: '#111827' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#111827' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#cbd5e1' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#475569' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1f2937' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#0f172a' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#334155' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#111827' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0f2a44' }] },
+];
+
+const currentMapStyles = () => document.documentElement.classList.contains('dark') ? darkMapStyles : lightMapStyles;
 
 const renderLocationMap = async () => {
   if (activeView.value !== 'locations' || !mapEl.value) return;
@@ -1232,7 +1230,7 @@ const renderLocationMap = async () => {
         mapTypeControl: false,
         streetViewControl: false,
         fullscreenControl: false,
-        styles: mapStyles,
+        styles: currentMapStyles(),
       });
 
       locationInfoWindow = new G.InfoWindow({ disableAutoPan: false });
@@ -1242,6 +1240,7 @@ const renderLocationMap = async () => {
     locationMarkers = new Map();
     locationBounds = new G.LatLngBounds();
     locationMap.setMapTypeId(mapTypeToGoogleId(mapType.value));
+    locationMap.setOptions({ styles: currentMapStyles() });
 
     const points = locationSessions.value.map((session) => ({
       session,
@@ -1412,6 +1411,12 @@ const setMapType = (type) => {
   locationMap.setMapTypeId(mapTypeToGoogleId(type));
 };
 
+const syncMapTheme = () => {
+  if (!locationMap) return;
+
+  locationMap.setOptions({ styles: currentMapStyles() });
+};
+
 const openSelectedLocationPopup = () => {
   if (!locationMap || !selectedSessionId.value || !locationInfoWindow) return;
 
@@ -1544,6 +1549,7 @@ watch([sessions, selectedSessionId, activeView], () => {
 
 onMounted(async () => {
   document.addEventListener('fullscreenchange', syncFullscreenState);
+  document.addEventListener('darkMode', syncMapTheme);
   await loadSessions();
   refreshTimer.value = window.setInterval(() => {
     loadSessions({ silent: true });
@@ -1553,6 +1559,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreenState);
+  document.removeEventListener('darkMode', syncMapTheme);
   window.clearInterval(refreshTimer.value);
   window.clearTimeout(searchTimer.value);
   stopSnapshotMonitor({ report: true });
@@ -2426,42 +2433,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.wfh-wall__map-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--wall-border);
-}
-
-.wfh-wall__map-metric {
-  min-height: 64px;
-  border: 1px solid var(--wall-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: var(--wall-panel-strong);
-}
-
-.wfh-wall__map-metric span {
-  display: block;
-  color: var(--wall-muted);
-  font-size: 11px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.wfh-wall__map-metric strong {
-  display: block;
-  margin-top: 6px;
-  color: var(--wall-text);
-  font-size: 26px;
-  line-height: 1;
-}
-
-.wfh-wall__map-metric.is-inside strong { color: #059669; }
-.wfh-wall__map-metric.is-outside strong { color: #e11d48; }
-.wfh-wall__map-metric.is-unknown strong { color: #64748b; }
-
 .wfh-wall__map-wrap {
   position: relative;
   background: var(--wall-video);
@@ -3025,8 +2996,7 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .wfh-wall__feed-status,
-  .wfh-wall__map-metrics {
+  .wfh-wall__feed-status {
     grid-template-columns: 1fr;
   }
 

@@ -2,12 +2,20 @@
     {{-- Top-level modules (standalone modules without parent) --}}
     @foreach($topLevelModules as $module)
         @if($module->route && $module->route !== 'dashboard')
+            @php
+                $opensWfhWall = $module->route === '/employee-management/wfh-monitoring';
+                $moduleHref = $opensWfhWall ? route('wfh-monitoring.wall') : route($module->route);
+            @endphp
             <li class="pl-4 pr-3 py-2 rounded-lg mb-0.5 last:mb-0 bg-[linear-gradient(135deg,var(--tw-gradient-stops))]
             @if ($this->isRouteActive($module->route)) {{ 'bg-gray-200 dark:bg-slate-900' }} @endif"
                 x-data="{ open: {{ $this->isRouteActive($module->route) ? 'true' : 'false' }} }">
                 <a class="block text-gray-800 dark:text-gray-100 truncate transition
                 @if ($this->isRouteActive($module->route)) {{ '!text-blue-500' }} @endif"
-                    href="{{ route($module->route) }}">
+                    href="{{ $moduleHref }}"
+                    @if($opensWfhWall)
+                        target="_blank"
+                        rel="noopener"
+                    @endif>
                     <div class="flex items-center justify-between">
                         <div class="flex items-center">
                             @if($module->icon)
@@ -112,10 +120,18 @@
                         x-transition:leave-end="opacity-0 max-h-0">
                         @foreach($childModules as $childModule)
                             @if($childModule->route)
+                                @php
+                                    $opensWfhWall = $childModule->route === '/employee-management/wfh-monitoring';
+                                    $childHref = $opensWfhWall ? route('wfh-monitoring.wall') : route($childModule->route);
+                                @endphp
                                 <li class="mb-1 last:mb-0">
                                     <a class="block text-slate-400 hover:text-blue-500 transition-colors duration-150 truncate
                                         @if ($this->isRouteActive($childModule->route)) {{ '!text-blue-500' }} @endif"
-                                        href="{{ route($childModule->route) }}">
+                                        href="{{ $childHref }}"
+                                        @if($opensWfhWall)
+                                            target="_blank"
+                                            rel="noopener"
+                                        @endif>
                                         <span class="text-sm font-medium lg:opacity-0 lg:sidebar-expanded:opacity-100 2xl:opacity-100 duration-200">
                                             {{ $childModule->module_name }}
                                         </span>

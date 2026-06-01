@@ -242,7 +242,7 @@ class WfhMonitoringController extends Controller
             'requested_at' => now()->toIso8601String(),
         ];
 
-        unset($meta['live_screen']);
+        unset($meta['live_screen'], $meta['live_media']);
 
         $session->update([
             'meta' => $meta,
@@ -278,7 +278,10 @@ class WfhMonitoringController extends Controller
             $meta['live_snapshots']['stopped_at'] = now()->toIso8601String();
         }
 
-        $session->update(['meta' => $meta]);
+        $session->update([
+            'meta' => $meta,
+            'screenshot_request_pending' => false,
+        ]);
         $this->logEvent($session, 'live_snapshots_stopped', 'Supervisor stopped live screen snapshots');
 
         return response()->json(['ok' => true]);

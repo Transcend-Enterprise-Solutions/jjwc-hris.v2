@@ -675,20 +675,20 @@ class WfhAttendance extends Component
                 ->where('wfh_monitoring_session_id', $session->id)
                 ->where('capture_type', 'live_snapshot')
                 ->latest('captured_at')
-                ->skip(120)
-                ->take(50)
                 ->get();
 
-            foreach ($oldSnapshots as $oldSnapshot) {
+            foreach ($oldSnapshots->skip(1) as $oldSnapshot) {
                 Storage::disk('public')->delete($oldSnapshot->path);
                 $oldSnapshot->delete();
             }
         }
 
-        $this->logMonitoringEvent($session, 'screenshot_captured', 'Screen snapshot captured from active screen share', [
-            'path' => $path,
-            'capture_type' => $normalizedCaptureType,
-        ]);
+        if ($normalizedCaptureType !== 'live_snapshot') {
+            $this->logMonitoringEvent($session, 'screenshot_captured', 'Screen snapshot captured from active screen share', [
+                'path' => $path,
+                'capture_type' => $normalizedCaptureType,
+            ]);
+        }
     }
 
     public function getLiveSnapshotRequest()

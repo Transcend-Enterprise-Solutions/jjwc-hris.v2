@@ -458,13 +458,8 @@
             '\x3Cdiv style=&quot;margin-top:12px; display:flex; justify-content:space-between; gap:10px; border-top:1px solid rgba(255,255,255,.14); padding-top:12px;&quot;\x3E\x3Cspan style=&quot;color:#bfdbfe; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.14em;&quot;\x3ECurrent session\x3C/span\x3E\x3Cspan id=&quot;popoutOnline&quot; style=&quot;font-family:monospace; font-size:18px; font-weight:900;&quot;\x3E00:00:00\x3C/span\x3E\x3C/div\x3E',
             '\x3Cdiv id=&quot;popoutUpdated&quot; style=&quot;font-size:12px; color:#cbd5e1; margin-top:6px;&quot;\x3ELast updated --:--:--\x3C/div\x3E',
             '\x3C/div\x3E',
-            '\x3Cdiv style=&quot;display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:12px;&quot;\x3E',
+            '\x3Cdiv style=&quot;display:grid; gap:10px; margin-top:12px;&quot;\x3E',
             '\x3Cdiv style=&quot;border-radius:18px; background:rgba(255,255,255,.09); padding:12px 14px;&quot;\x3E\x3Cdiv style=&quot;font-size:11px; color:#cbd5e1; text-transform:uppercase; font-weight:800;&quot;\x3EScreen\x3C/div\x3E\x3Cdiv id=&quot;popoutScreen&quot; style=&quot;margin-top:4px; font-size:18px; font-weight:900;&quot;\x3EOff\x3C/div\x3E\x3C/div\x3E',
-            '\x3Cdiv style=&quot;border-radius:18px; background:rgba(255,255,255,.09); padding:12px 14px;&quot;\x3E\x3Cdiv style=&quot;font-size:11px; color:#cbd5e1; text-transform:uppercase; font-weight:800;&quot;\x3ECam/Mic\x3C/div\x3E\x3Cdiv id=&quot;popoutMedia&quot; style=&quot;margin-top:4px; font-size:18px; font-weight:900;&quot;\x3EOff\x3C/div\x3E\x3C/div\x3E',
-            '\x3C/div\x3E',
-            '\x3Cdiv style=&quot;display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px;&quot;\x3E',
-            '\x3Cbutton id=&quot;popoutMic&quot; type=&quot;button&quot; style=&quot;border:0; border-radius:14px; padding:13px 12px; font-weight:900; cursor:pointer; background:#e0f2fe; color:#0f172a;&quot;\x3EMic\x3C/button\x3E',
-            '\x3Cbutton id=&quot;popoutCamera&quot; type=&quot;button&quot; style=&quot;border:0; border-radius:14px; padding:13px 12px; font-weight:900; cursor:pointer; background:#f3e8ff; color:#0f172a;&quot;\x3ECamera\x3C/button\x3E',
             '\x3C/div\x3E',
             '\x3Cbutton id=&quot;popoutScreenToggle&quot; type=&quot;button&quot; style=&quot;width:100%; margin-top:12px; border:0; border-radius:16px; padding:14px; background:#2563eb; color:#fff; font-weight:950; cursor:pointer; box-shadow:0 18px 40px rgba(37,99,235,.35);&quot;\x3EStart Screen Sharing\x3C/button\x3E',
             '\x3Cp style=&quot;font-size:11px; line-height:1.5; color:#dbeafe; margin-top:12px;&quot;\x3EKeep the main HRIS tab open. The button changes automatically between sharing and canceling when the live screen stream is present.\x3C/p\x3E',
@@ -551,8 +546,6 @@
         popout.document.open();
         popout.document.write(this.monitoringPopoutMarkup());
         popout.document.close();
-        popout.document.getElementById('popoutMic')?.addEventListener('click', () => this.toggleLiveMediaMic());
-        popout.document.getElementById('popoutCamera')?.addEventListener('click', () => this.toggleLiveMediaCamera());
         popout.document.getElementById('popoutScreenToggle')?.addEventListener('click', () => {
             if (this.isScreenShareLive()) {
                 this.stopScreenShare();
@@ -939,7 +932,6 @@
             if (verifyType === 'Morning In') {
                 this.syncMonitoring(true);
                 this.captureScreenSnapshot('time_in');
-                this.startLiveMediaPreview();
             }
         } finally {
             this.punchSubmitting = false;
@@ -961,8 +953,6 @@
         });
         setInterval(() => this.syncMonitoring(true), 30000);
         setInterval(() => this.checkLiveSnapshotRequest(), 3000);
-        setInterval(() => this.checkLiveScreenRequest(), 1500);
-        setInterval(() => this.checkLiveMediaRequest(), 1500);
         this.resetAfkTimer();
         window.addEventListener('mousemove', () => this.markActivity('mouse'));
         window.addEventListener('keydown', () => this.markActivity('key'));
@@ -1024,45 +1014,12 @@
                     </div>
                 </div>
 
-                <div x-show="liveMediaStream" x-cloak wire:ignore class="relative h-20 w-32 overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-inner">
-                    <video x-ref="liveMediaSelfPreview" autoplay playsinline muted class="h-full w-full scale-x-[-1] object-cover"></video>
-                    <div class="absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white backdrop-blur">
-                        You
-                    </div>
-                    <div x-show="!liveMediaCameraOn" class="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-950/85 text-white">
-                        <i class="bi bi-camera-video-off-fill text-lg"></i>
-                        <span class="text-[10px] font-bold uppercase tracking-wide">Camera off</span>
-                    </div>
-                </div>
-
-                <button type="button" x-show="!liveMediaStream" x-cloak @click="startLiveMediaPreview()" class="flex h-20 w-32 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white transition hover:bg-white/15">
-                    <i class="bi bi-camera-video text-xl"></i>
-                    <span class="mt-1 text-[10px] font-black uppercase tracking-wide">Open Cam/Mic</span>
-                </button>
-
                 <div class="flex flex-wrap items-center justify-center gap-2">
                     <button type="button" @click="isScreenShareLive() ? stopScreenShare() : startScreenShare()" class="relative flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-blue-950/30 transition"
                         :class="isScreenShareLive() ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-500 hover:bg-amber-400'"
                         :title="isScreenShareLive() ? 'Cancel screen sharing' : 'Start screen sharing'">
                         <i class="bi bi-display-fill"></i>
                         <span x-show="!isScreenShareLive()" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-white shadow"></span>
-                    </button>
-                    <button type="button" @click="toggleLiveMediaMic()"
-                        class="relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg shadow-slate-950/20 transition"
-                        :class="!liveMediaStream ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : (liveMediaMicOn ? 'bg-emerald-500 text-white hover:bg-emerald-400' : 'bg-rose-600 text-white hover:bg-rose-500')"
-                        :title="!liveMediaStream ? 'Open camera and microphone' : (liveMediaMicOn ? 'Mute microphone' : 'Unmute microphone')">
-                        <i class="text-lg" :class="!liveMediaStream ? 'bi bi-mic' : (liveMediaMicOn ? 'bi bi-mic-fill' : 'bi bi-mic-mute-fill')"></i>
-                        <span x-show="liveMediaStream && !liveMediaMicOn" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-white shadow"></span>
-                    </button>
-                    <button type="button" @click="toggleLiveMediaCamera()"
-                        class="relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg shadow-slate-950/20 transition"
-                        :class="!liveMediaStream ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : (liveMediaCameraOn ? 'bg-emerald-500 text-white hover:bg-emerald-400' : 'bg-rose-600 text-white hover:bg-rose-500')"
-                        :title="!liveMediaStream ? 'Open camera and microphone' : (liveMediaCameraOn ? 'Turn camera off' : 'Turn camera on')">
-                        <i class="text-lg" :class="!liveMediaStream ? 'bi bi-camera-video' : (liveMediaCameraOn ? 'bi bi-camera-video-fill' : 'bi bi-camera-video-off-fill')"></i>
-                        <span x-show="liveMediaStream && !liveMediaCameraOn" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-white shadow"></span>
-                    </button>
-                    <button type="button" x-show="liveMediaStream" @click="stopLiveMedia()" class="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-950/30 transition hover:bg-red-500" title="Stop camera and microphone">
-                        <i class="bi bi-telephone-x-fill"></i>
                     </button>
                     <button type="button" @click="monitoringFloatOpen = false" class="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/15" title="Hide monitor">
                         <i class="bi bi-chevron-down"></i>

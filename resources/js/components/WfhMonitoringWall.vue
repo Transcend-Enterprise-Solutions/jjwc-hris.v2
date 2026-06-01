@@ -85,58 +85,42 @@
         <section class="wfh-wall__viewer">
           <div class="wfh-wall__viewer-head">
             <div>
-              <p>Selected Live Feed</p>
+              <p>Selected Screen Monitor</p>
               <h2>{{ selectedSession?.employee?.name || 'No employee selected' }}</h2>
-              <span>{{ selectedSession?.employee?.empCode || 'Choose an active employee to open live monitoring' }}</span>
+              <span>{{ selectedSession?.employee?.empCode || 'Choose an active employee to view the latest screen frame' }}</span>
             </div>
 
             <div class="wfh-wall__button-row">
-              <span class="wfh-wall__auto-badge" :class="{ live: liveConnected || liveMediaConnected }">
-                <i class="bi bi-lightning-charge"></i>
-                Auto opens on select
+              <span class="wfh-wall__auto-badge" :class="{ live: snapshotActive }">
+                <i class="bi bi-image"></i>
+                {{ snapshotActive ? 'Refreshing every 5s' : 'Latest screenshot mode' }}
               </span>
-              <button class="wfh-wall__button wfh-wall__button--danger" type="button" @click="stopSelectedLive()" :disabled="!selectedSession || liveBusy || liveMediaBusy || (!liveSessionId && !liveMediaSessionId)">
+              <span class="wfh-wall__auto-badge" v-if="snapshotCapturedAt">
+                <i class="bi bi-clock"></i>
+                {{ relativeTime(snapshotCapturedAt) }}
+              </span>
+              <button class="wfh-wall__button wfh-wall__button--primary" type="button" @click="startSnapshotMonitor({ force: true })" :disabled="!selectedSession || snapshotBusy">
+                <i class="bi bi-play-circle"></i>
+                Start
+              </button>
+              <button class="wfh-wall__button wfh-wall__button--danger" type="button" @click="stopSnapshotMonitor()" :disabled="!selectedSession || snapshotBusy || !snapshotActive">
                 <i class="bi bi-stop-circle"></i>
-                Stop feed
+                Stop
               </button>
             </div>
           </div>
 
-          <div class="wfh-wall__feed-status">
-            <article :class="{ connected: liveConnected }">
-              <span><i class="bi bi-display"></i> Screen</span>
-              <strong>{{ liveConnected ? 'Live now' : 'Auto opening' }}</strong>
-              <small>{{ liveStatus }}</small>
-            </article>
-            <article :class="{ connected: liveMediaConnected }">
-              <span><i class="bi bi-camera-video"></i> Camera / mic</span>
-              <strong>{{ liveMediaConnected ? 'Live now' : 'Auto opening' }}</strong>
-              <small>{{ liveMediaStatus }}</small>
-            </article>
-          </div>
-
-          <div class="wfh-wall__video-frame">
-            <video ref="liveVideo" autoplay playsinline muted></video>
-            <div v-if="!liveConnected" class="wfh-wall__video-empty">
+          <div class="wfh-wall__snapshot-frame">
+            <img v-if="snapshotUrl" :src="snapshotUrl" alt="Latest employee screen frame" />
+            <div v-else class="wfh-wall__video-empty">
               <i class="bi bi-display"></i>
-              <strong>{{ liveStatusTitle }}</strong>
-              <span>{{ liveStatus }}</span>
+              <strong>{{ snapshotEmptyTitle }}</strong>
+              <span>{{ snapshotStatus }}</span>
             </div>
-            <div class="wfh-wall__media-tile" :class="{ connected: liveMediaConnected }">
-              <video ref="liveMediaVideo" autoplay playsinline></video>
-              <div v-if="!liveMediaConnected" class="wfh-wall__media-empty">
-                <i class="bi bi-camera-video"></i>
-                <strong>Camera / Mic</strong>
-                <span>{{ liveMediaStatus }}</span>
-              </div>
-              <div class="wfh-wall__media-caption">
-                <span :class="['wfh-wall__live-dot', { connected: liveMediaConnected }]"></span>
-                <strong>{{ liveMediaConnected ? 'Cam/Mic live' : 'Cam/Mic opening' }}</strong>
-              </div>
-              <button v-if="liveMediaAudioBlocked" class="wfh-wall__audio-button" type="button" @click="playLiveMedia">
-                <i class="bi bi-volume-up"></i>
-                Enable audio
-              </button>
+            <div class="wfh-wall__snapshot-caption">
+              <span :class="['wfh-wall__live-dot', { connected: snapshotActive }]"></span>
+              <strong>{{ snapshotStatus }}</strong>
+              <small v-if="snapshotCapturedAt">{{ formatTime(snapshotCapturedAt) }}</small>
             </div>
           </div>
         </section>
@@ -155,7 +139,7 @@
           </article>
 
           <article class="wfh-wall__detail-card">
-            <h3>Streams</h3>
+            <h3>Screen Capture</h3>
             <ol class="wfh-wall__steps">
               <li :class="{ done: Boolean(selectedSession) }">
                 <i class="bi bi-person-check"></i>
@@ -165,17 +149,17 @@
                 <i class="bi bi-display"></i>
                 <span>Screen sharing active</span>
               </li>
-              <li :class="{ done: liveConnected }">
-                <i class="bi bi-broadcast"></i>
-                <span>Screen live</span>
+              <li :class="{ done: snapshotActive }">
+                <i class="bi bi-arrow-repeat"></i>
+                <span>5-second capture loop</span>
               </li>
-              <li :class="{ done: liveMediaConnected }">
-                <i class="bi bi-camera-video"></i>
-                <span>Camera and mic live</span>
+              <li :class="{ done: Boolean(snapshotUrl) }">
+                <i class="bi bi-image"></i>
+                <span>Latest frame received</span>
               </li>
             </ol>
             <p class="wfh-wall__helper-text">
-              Selecting an active employee opens their screen, camera, and microphone automatically.
+              The employee browser keeps one latest screenshot only, so storage stays light on shared hosting.
             </p>
           </article>
 
@@ -197,16 +181,25 @@
           </article>
 
           <article class="wfh-wall__detail-card">
-            <h3>Recent Activity</h3>
+            <div class="wfh-wall__card-head">
+              <h3>Recent Activity</h3>
+              <select v-model="activityFilter" class="wfh-wall__activity-filter">
+                <option value="all">All</option>
+                <option value="screen">Screen</option>
+                <option value="location">Location</option>
+                <option value="session">Session</option>
+                <option value="alerts">Alerts</option>
+              </select>
+            </div>
             <ol class="wfh-wall__events">
-              <li v-for="event in selectedEvents" :key="event.id">
+              <li v-for="event in filteredEvents" :key="event.id">
                 <span></span>
                 <div>
                   <strong>{{ event.label || event.type }}</strong>
                   <small>{{ formatTime(event.occurredAt) }}</small>
                 </div>
               </li>
-              <li v-if="!selectedEvents.length" class="empty">No recent events.</li>
+              <li v-if="!filteredEvents.length" class="empty">No matching activity.</li>
             </ol>
           </article>
         </aside>
@@ -382,6 +375,7 @@ const stats = ref({});
 const selectedSessionId = ref(null);
 const selectedDetails = ref(null);
 const selectedEvents = ref([]);
+const activityFilter = ref('all');
 const errorMessage = ref('');
 const liveStatus = ref('Select an active employee to open live monitoring.');
 const liveBusy = ref(false);
@@ -389,6 +383,7 @@ const liveConnected = ref(false);
 const liveSessionId = ref(null);
 const liveToken = ref(null);
 const livePeer = ref(null);
+const liveRequestSeq = ref(0);
 const liveMediaStatus = ref('Select an employee to open camera and microphone.');
 const liveMediaBusy = ref(false);
 const liveMediaConnected = ref(false);
@@ -397,6 +392,7 @@ const liveMediaSessionId = ref(null);
 const liveMediaToken = ref(null);
 const liveMediaPeer = ref(null);
 const liveMediaStream = ref(null);
+const liveMediaRequestSeq = ref(0);
 const isFullscreen = ref(false);
 const isAutoRefreshing = ref(false);
 const mapType = ref('roadmap');
@@ -406,6 +402,14 @@ const refreshTimer = ref(null);
 const signalTimer = ref(null);
 const mediaSignalTimer = ref(null);
 const searchTimer = ref(null);
+const snapshotTimer = ref(null);
+const snapshotSessionId = ref(null);
+const snapshotToken = ref(null);
+const snapshotUrl = ref('');
+const snapshotCapturedAt = ref('');
+const snapshotStatus = ref('Select an employee to view their latest screen frame.');
+const snapshotBusy = ref(false);
+const snapshotActive = ref(false);
 let locationMap = null;
 let locationBounds = null;
 let locationMarkers = new Map();
@@ -475,6 +479,30 @@ const liveStatusTitle = computed(() => {
   return 'Live feed not started';
 });
 
+const snapshotEmptyTitle = computed(() => {
+  if (!selectedSession.value) return 'No employee selected';
+  if (snapshotBusy.value) return 'Starting screen monitor';
+  if (!selectedSession.value?.screenShareActive) return 'Screen sharing is off';
+  return 'Waiting for latest screen frame';
+});
+
+const filteredEvents = computed(() => {
+  const filter = activityFilter.value;
+
+  if (filter === 'all') return selectedEvents.value;
+
+  return selectedEvents.value.filter((event) => {
+    const haystack = `${event.type || ''} ${event.label || ''}`.toLowerCase();
+
+    if (filter === 'screen') return haystack.includes('screen') || haystack.includes('snapshot');
+    if (filter === 'location') return haystack.includes('location') || haystack.includes('geofence') || haystack.includes('gps');
+    if (filter === 'session') return haystack.includes('session') || haystack.includes('monitoring') || haystack.includes('time');
+    if (filter === 'alerts') return haystack.includes('alert') || haystack.includes('denied') || haystack.includes('offline') || haystack.includes('afk');
+
+    return true;
+  });
+});
+
 const canOpenLiveForSession = (session = selectedSession.value) => {
   const state = String(session?.state || '').toLowerCase();
 
@@ -539,11 +567,11 @@ const loadSessions = async ({ silent = false } = {}) => {
     if (!selectedSessionId.value && sessions.value.length) {
       selectedSessionId.value = sessions.value[0].id;
       await loadSelectedDetails();
-      await openSelectedLive();
+      await startSnapshotMonitor();
     } else if (selectedSessionId.value && !sessions.value.some((session) => session.id === selectedSessionId.value)) {
       selectedSessionId.value = sessions.value[0]?.id || null;
       await loadSelectedDetails();
-      await openSelectedLive();
+      await startSnapshotMonitor();
     }
   } catch (error) {
     if (!silent) errorMessage.value = error.message || 'Unable to load WFH monitoring sessions.';
@@ -563,6 +591,9 @@ const loadSelectedDetails = async ({ silent = false } = {}) => {
     const payload = await apiFetch(`/sessions/${selectedSessionId.value}`);
     selectedDetails.value = payload.session || null;
     selectedEvents.value = payload.events || [];
+    if (payload.session?.latestScreenshot?.url && payload.session.id === snapshotSessionId.value) {
+      applySnapshot(payload.session.latestScreenshot);
+    }
   } catch (error) {
     if (!silent) errorMessage.value = error.message || 'Unable to load selected employee details.';
   }
@@ -570,14 +601,13 @@ const loadSelectedDetails = async ({ silent = false } = {}) => {
 
 const selectSession = async (sessionId) => {
   if (sessionId !== selectedSessionId.value) {
-    await stopSelectedLive({ resetStatus: false });
+    await stopSnapshotMonitor({ report: true, resetStatus: false });
   }
 
   selectedSessionId.value = sessionId;
-  liveStatus.value = 'Opening selected employee screen...';
-  liveMediaStatus.value = 'Opening selected employee camera and microphone...';
+  snapshotStatus.value = 'Opening latest screen frame...';
   await loadSelectedDetails();
-  await openSelectedLive({ force: true });
+  await startSnapshotMonitor({ force: true });
 };
 
 const waitForIceGathering = async (peer) => {
@@ -605,7 +635,11 @@ const sanitizeRtcDescription = (description) => {
 
     if (!payload) return;
 
-    if (/^a=rtpmap:\d+\s+flexfec-03\/90000/i.test(line) || /^a=fmtp:\d+.*repair-window=/i.test(line)) {
+    if (
+      /^a=rtpmap:\d+\s+flexfec-03\/90000/i.test(line)
+      || /^a=rtpmap:\d+\s+telephone-event\/\d+/i.test(line)
+      || /^a=fmtp:\d+.*repair-window=/i.test(line)
+    ) {
       blockedPayloads.add(payload);
     }
   });
@@ -614,7 +648,7 @@ const sanitizeRtcDescription = (description) => {
 
   const sanitized = lines
     .map((line) => {
-      if (!line.startsWith('m=video ')) return line;
+      if (!/^m=(?:audio|video) /.test(line)) return line;
 
       const parts = line.trim().split(/\s+/);
       return parts.filter((part, index) => index < 3 || !blockedPayloads.has(part)).join(' ');
@@ -631,17 +665,101 @@ const sanitizeRtcDescription = (description) => {
   };
 };
 
-const openSelectedLive = async ({ force = false } = {}) => {
+const applySnapshot = (snapshot) => {
+  if (!snapshot?.url) return;
+
+  const separator = snapshot.url.includes('?') ? '&' : '?';
+  snapshotUrl.value = `${snapshot.url}${separator}v=${Date.now()}`;
+  snapshotCapturedAt.value = snapshot.capturedAt || '';
+  snapshotStatus.value = 'Latest screen frame received.';
+};
+
+const refreshLatestSnapshot = async () => {
+  if (!snapshotSessionId.value) return;
+
+  try {
+    const payload = await apiFetch(`/sessions/${snapshotSessionId.value}/live-snapshots/latest`);
+    if (snapshotSessionId.value !== selectedSessionId.value) return;
+
+    if (payload.snapshot?.url) {
+      applySnapshot(payload.snapshot);
+      snapshotActive.value = true;
+    } else {
+      snapshotStatus.value = selectedSession.value?.screenShareActive
+        ? 'Waiting for the employee browser to upload the first frame.'
+        : 'Employee screen sharing is not active.';
+    }
+  } catch (error) {
+    snapshotStatus.value = error.message || 'Unable to refresh the latest screen frame.';
+  }
+};
+
+const stopSnapshotPolling = () => {
+  if (snapshotTimer.value) {
+    window.clearInterval(snapshotTimer.value);
+    snapshotTimer.value = null;
+  }
+};
+
+const startSnapshotPolling = (intervalSeconds = 5) => {
+  stopSnapshotPolling();
+  refreshLatestSnapshot();
+  snapshotTimer.value = window.setInterval(refreshLatestSnapshot, Math.max(5, Number(intervalSeconds || 5)) * 1000);
+};
+
+const startSnapshotMonitor = async ({ force = false } = {}) => {
   if (!canOpenLiveForSession()) {
-    liveStatus.value = selectedSession.value ? 'Selected employee is not available for live monitoring.' : 'Select an employee to open live monitoring.';
-    liveMediaStatus.value = 'Camera and microphone are waiting for an active employee.';
+    snapshotStatus.value = selectedSession.value ? 'Selected employee is not available for monitoring.' : 'Select an employee to view their latest screen frame.';
     return;
   }
 
-  await Promise.all([
-    startLiveScreen({ force }),
-    startLiveMedia({ force }),
-  ]);
+  if (!force && snapshotSessionId.value === selectedSessionId.value && snapshotActive.value) return;
+
+  stopSnapshotPolling();
+  snapshotBusy.value = true;
+  snapshotUrl.value = '';
+  snapshotCapturedAt.value = '';
+  snapshotStatus.value = 'Starting 5-second screen frame refresh...';
+
+  try {
+    const sessionId = selectedSessionId.value;
+    const request = await apiFetch(`/sessions/${sessionId}/live-snapshots/start`, { method: 'POST' });
+
+    if (sessionId !== selectedSessionId.value) return;
+
+    snapshotSessionId.value = sessionId;
+    snapshotToken.value = request.token || null;
+    snapshotActive.value = true;
+    snapshotStatus.value = 'Waiting for the employee browser to upload the first frame.';
+    applySnapshot(request.snapshot);
+    startSnapshotPolling(request.intervalSeconds || 5);
+  } catch (error) {
+    snapshotActive.value = false;
+    snapshotStatus.value = error.message || 'Unable to start latest screen frame monitoring.';
+  } finally {
+    snapshotBusy.value = false;
+  }
+};
+
+const stopSnapshotMonitor = async ({ report = true, resetStatus = true } = {}) => {
+  const sessionId = snapshotSessionId.value;
+
+  stopSnapshotPolling();
+  snapshotSessionId.value = null;
+  snapshotToken.value = null;
+  snapshotActive.value = false;
+
+  if (report && sessionId) {
+    await apiFetch(`/sessions/${sessionId}/live-snapshots/stop`, { method: 'POST' }).catch(() => {});
+  }
+
+  if (resetStatus) {
+    snapshotStatus.value = 'Screen frame monitoring stopped.';
+  }
+};
+
+const openSelectedLive = async (options = {}) => {
+  await startSnapshotMonitor(options);
 };
 
 const startLiveScreen = async ({ force = false } = {}) => {
@@ -655,19 +773,25 @@ const startLiveScreen = async ({ force = false } = {}) => {
   }
 
   await stopLiveScreen({ report: false, resetStatus: false });
+  const sessionId = selectedSessionId.value;
+  const requestSeq = liveRequestSeq.value + 1;
+  liveRequestSeq.value = requestSeq;
   liveBusy.value = true;
   errorMessage.value = '';
   liveStatus.value = 'Opening selected employee screen...';
 
   try {
-    const request = await apiFetch(`/sessions/${selectedSessionId.value}/live-screen/request`, { method: 'POST' });
+    const request = await apiFetch(`/sessions/${sessionId}/live-screen/request`, { method: 'POST' });
 
     if (!request?.token) {
       throw new Error('Unable to open live feed.');
     }
 
-    liveSessionId.value = selectedSessionId.value;
-    liveToken.value = request.token;
+    if (requestSeq !== liveRequestSeq.value || sessionId !== selectedSessionId.value) return;
+
+    const token = request.token;
+    liveSessionId.value = sessionId;
+    liveToken.value = token;
 
     const peer = new RTCPeerConnection(rtcConfiguration());
 
@@ -705,23 +829,38 @@ const startLiveScreen = async ({ force = false } = {}) => {
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
     await waitForIceGathering(peer);
-    await apiFetch(`/sessions/${selectedSessionId.value}/live-screen/offer`, {
+
+    if (requestSeq !== liveRequestSeq.value || sessionId !== selectedSessionId.value || liveToken.value !== token) {
+      peer.close();
+      return;
+    }
+
+    await apiFetch(`/sessions/${sessionId}/live-screen/offer`, {
       method: 'POST',
       body: {
-        token: liveToken.value,
+        token,
         offer: sanitizeRtcDescription(peer.localDescription.toJSON()),
       },
     });
+
+    if (requestSeq !== liveRequestSeq.value || sessionId !== selectedSessionId.value || liveToken.value !== token) {
+      peer.close();
+      return;
+    }
 
     livePeer.value = peer;
     liveStatus.value = 'Opening employee screen stream...';
     startSignalPolling();
   } catch (error) {
-    await stopLiveScreen({ report: true, resetStatus: false });
-    errorMessage.value = error.message || 'Unable to start live feed.';
-    liveStatus.value = errorMessage.value;
+    if (requestSeq === liveRequestSeq.value) {
+      await stopLiveScreen({ report: true, resetStatus: false });
+      errorMessage.value = error.message || 'Unable to start live feed.';
+      liveStatus.value = errorMessage.value;
+    }
   } finally {
-    liveBusy.value = false;
+    if (requestSeq === liveRequestSeq.value) {
+      liveBusy.value = false;
+    }
   }
 };
 
@@ -754,18 +893,24 @@ const startLiveMedia = async ({ force = false } = {}) => {
   }
 
   await stopLiveMedia({ report: false, resetStatus: false });
+  const sessionId = selectedSessionId.value;
+  const requestSeq = liveMediaRequestSeq.value + 1;
+  liveMediaRequestSeq.value = requestSeq;
   liveMediaBusy.value = true;
   liveMediaStatus.value = 'Opening selected employee camera and microphone...';
 
   try {
-    const request = await apiFetch(`/sessions/${selectedSessionId.value}/live-media/request`, { method: 'POST' });
+    const request = await apiFetch(`/sessions/${sessionId}/live-media/request`, { method: 'POST' });
 
     if (!request?.token) {
       throw new Error('Unable to open camera and microphone feed.');
     }
 
-    liveMediaSessionId.value = selectedSessionId.value;
-    liveMediaToken.value = request.token;
+    if (requestSeq !== liveMediaRequestSeq.value || sessionId !== selectedSessionId.value) return;
+
+    const token = request.token;
+    liveMediaSessionId.value = sessionId;
+    liveMediaToken.value = token;
 
     const peer = new RTCPeerConnection(rtcConfiguration());
 
@@ -810,22 +955,37 @@ const startLiveMedia = async ({ force = false } = {}) => {
     const offer = await peer.createOffer();
     await peer.setLocalDescription(offer);
     await waitForIceGathering(peer);
-    await apiFetch(`/sessions/${selectedSessionId.value}/live-media/offer`, {
+
+    if (requestSeq !== liveMediaRequestSeq.value || sessionId !== selectedSessionId.value || liveMediaToken.value !== token) {
+      peer.close();
+      return;
+    }
+
+    await apiFetch(`/sessions/${sessionId}/live-media/offer`, {
       method: 'POST',
       body: {
-        token: liveMediaToken.value,
+        token,
         offer: sanitizeRtcDescription(peer.localDescription.toJSON()),
       },
     });
+
+    if (requestSeq !== liveMediaRequestSeq.value || sessionId !== selectedSessionId.value || liveMediaToken.value !== token) {
+      peer.close();
+      return;
+    }
 
     liveMediaPeer.value = peer;
     liveMediaStatus.value = 'Opening employee camera and microphone...';
     startMediaSignalPolling();
   } catch (error) {
-    await stopLiveMedia({ report: true, resetStatus: false });
-    liveMediaStatus.value = error.message || 'Unable to open camera and microphone feed.';
+    if (requestSeq === liveMediaRequestSeq.value) {
+      await stopLiveMedia({ report: true, resetStatus: false });
+      liveMediaStatus.value = error.message || 'Unable to open camera and microphone feed.';
+    }
   } finally {
-    liveMediaBusy.value = false;
+    if (requestSeq === liveMediaRequestSeq.value) {
+      liveMediaBusy.value = false;
+    }
   }
 };
 
@@ -918,6 +1078,7 @@ const stopMediaSignalPolling = () => {
 };
 
 const stopLiveScreen = async ({ report = true, resetStatus = true } = {}) => {
+  liveRequestSeq.value += 1;
   stopSignalPolling();
 
   const sessionId = liveSessionId.value;
@@ -945,6 +1106,7 @@ const stopLiveScreen = async ({ report = true, resetStatus = true } = {}) => {
 };
 
 const stopLiveMedia = async ({ report = true, resetStatus = true } = {}) => {
+  liveMediaRequestSeq.value += 1;
   stopMediaSignalPolling();
 
   const sessionId = liveMediaSessionId.value;
@@ -974,10 +1136,7 @@ const stopLiveMedia = async ({ report = true, resetStatus = true } = {}) => {
 };
 
 const stopSelectedLive = async ({ resetStatus = true } = {}) => {
-  await Promise.all([
-    stopLiveScreen({ report: true, resetStatus }),
-    stopLiveMedia({ report: true, resetStatus }),
-  ]);
+  await stopSnapshotMonitor({ report: true, resetStatus });
 };
 
 const loadGoogleMaps = () => {
@@ -1385,8 +1544,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreenState);
   window.clearInterval(refreshTimer.value);
   window.clearTimeout(searchTimer.value);
-  stopLiveScreen({ report: true });
-  stopLiveMedia({ report: true });
+  stopSnapshotMonitor({ report: true });
   if (locationMap) {
     locationMarkers.forEach((marker) => marker.setMap(null));
     locationMarkers = new Map();
@@ -1674,7 +1832,7 @@ onBeforeUnmount(() => {
 
 .wfh-wall__layout {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(280px, 340px);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1.35fr) minmax(320px, 420px);
   gap: 14px;
   padding-bottom: 20px;
   background: var(--wall-bg);
@@ -1879,7 +2037,8 @@ onBeforeUnmount(() => {
 .state-offline { background-color: #f43f5e; color: #fff1f2; }
 .state-neutral { background-color: #64748b; color: #f8fafc; }
 
-.wfh-wall__video-frame {
+.wfh-wall__video-frame,
+.wfh-wall__snapshot-frame {
   position: relative;
   display: grid;
   place-items: center;
@@ -1893,11 +2052,48 @@ onBeforeUnmount(() => {
   overflow: hidden;
 }
 
-.wfh-wall__video-frame video {
+.wfh-wall__video-frame video,
+.wfh-wall__snapshot-frame img {
   width: 100%;
   height: 100%;
   object-fit: contain;
   background: #020617;
+}
+
+.wfh-wall__snapshot-frame {
+  background: #020617;
+}
+
+.wfh-wall__snapshot-caption {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: rgba(15, 23, 42, 0.82);
+  color: #e5eefb;
+  backdrop-filter: blur(10px);
+}
+
+.wfh-wall__snapshot-caption strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wfh-wall__snapshot-caption small {
+  margin-left: auto;
+  color: #cbd5e1;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .wfh-wall__video-empty {
@@ -2044,6 +2240,17 @@ onBeforeUnmount(() => {
   color: var(--wall-muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.wfh-wall__activity-filter {
+  min-height: 34px;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--wall-input);
+  color: var(--wall-text);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .wfh-wall__detail-card dl {

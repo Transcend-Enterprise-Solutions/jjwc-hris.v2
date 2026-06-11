@@ -26,6 +26,8 @@
     monitoringPopoutBlocked: false,
     monitoringPopoutAttempted: false,
     screenShareActive: @js((bool) $monitoringScreenShareActive),
+    screenShareSupported: !!navigator.mediaDevices?.getDisplayMedia,
+    mobileDevice: /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent),
     screenSurfaceWarning: null,
     screenResumeRequired: false,
     afkPromptOpen: false,
@@ -122,7 +124,7 @@
         if (typeof response?.screenShareActive === 'boolean') {
             this.screenShareActive = this.isScreenShareLive();
 
-            if (response.screenShareActive && !this.screenShareActive) {
+            if (this.screenShareSupported && response.screenShareActive && !this.screenShareActive) {
                 this.screenResumeRequired = true;
             }
         }
@@ -423,11 +425,13 @@
     },
     monitoringStatusLabel() {
         if (this.isScreenShareLive()) return 'Monitoring active';
+        if (!this.screenShareSupported) return 'Mobile monitoring';
         if (this.screenResumeRequired) return 'Needs screen share';
         return 'Waiting for screen share';
     },
     monitoringStatusClass() {
         if (this.isScreenShareLive()) return 'bg-emerald-100 text-emerald-700';
+        if (!this.screenShareSupported) return 'bg-sky-100 text-sky-700';
         if (this.screenResumeRequired) return 'bg-amber-100 text-amber-700';
         return 'bg-rose-100 text-rose-700';
     },
@@ -917,10 +921,20 @@
 
         try {
             if (verifyType === 'Morning In') {
-                const screenShared = this.isScreenShareLive() || await this.startScreenShare();
+                if (this.screenShareSupported) {
+                    const screenShared = this.isScreenShareLive() || await this.startScreenShare();
 
-                if (!screenShared) {
-                    return;
+                    if (!screenShared) {
+                        return;
+                    }
+                } else {
+                    this.screenResumeRequired = false;
+                    await $wire.recordMonitoringSignal(
+                        'mobile_monitoring_started',
+                        'Employee started WFH monitoring on a device without browser screen sharing',
+                        { user_agent: navigator.userAgent }
+                    );
+                    await this.startLiveMediaPreview();
                 }
             }
 
@@ -943,14 +957,14 @@
             const restoredScreenShare = this.restoreScreenShareRuntime();
             const mustShareScreen = await $wire.shouldRequireMonitoringScreenShare();
 
-            if (mustShareScreen && !restoredScreenShare && !this.hasLiveScreenTrack()) {
+            if (this.screenShareSupported && mustShareScreen && !restoredScreenShare && !this.hasLiveScreenTrack()) {
                 this.screenShareActive = false;
                 this.screenResumeRequired = true;
             }
 
             await this.syncMonitoring(true);
             this.checkLiveScreenRequest();
-            this.screenResumeRequired = mustShareScreen && !this.hasLiveScreenTrack();
+            this.screenResumeRequired = this.screenShareSupported && mustShareScreen && !this.hasLiveScreenTrack();
         });
         setInterval(() => this.syncMonitoring(true), 30000);
         setInterval(() => this.checkLiveSnapshotRequest(), 3000);
@@ -1016,9 +1030,9 @@
                 </div>
 
                 <div class="flex flex-wrap items-center justify-center gap-2 sm:justify-end">
-                    <button type="button" @click="isScreenShareLive() ? stopScreenShare() : startScreenShare()" class="relative flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-blue-950/30 transition"
-                        :class="isScreenShareLive() ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-500 hover:bg-amber-400'"
-                        :title="isScreenShareLive() ? 'Cancel screen sharing' : 'Start screen sharing'">
+                    <button type="button" @click="screenShareSupported && (isScreenShareLive() ? stopScreenShare() : startScreenShare())" class="relative flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-blue-950/30 transition"
+                        :class="!screenShareSupported ? 'cursor-not-allowed bg-slate-700' : (isScreenShareLive() ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-500 hover:bg-amber-400')"
+                        :title="!screenShareSupported ? 'Screen sharing is unavailable on this mobile browser' : (isScreenShareLive() ? 'Cancel screen sharing' : 'Start screen sharing')">
                         <i class="bi bi-display-fill"></i>
                         <span x-show="!isScreenShareLive()" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-white shadow"></span>
                     </button>
@@ -1067,7 +1081,7 @@
         </div>
     </div>
 
-    <div x-show="screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483647;">
+    <div x-show="screenSurfaceWarning && screenShareSupported" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483647;">
         <div class="relative w-full max-w-lg rounded-2xl border border-rose-200 bg-white p-6 shadow-2xl dark:border-rose-500/30 dark:bg-slate-900" style="z-index: 2147483647;">
             <p class="text-xs font-bold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-300">Screen Share Required</p>
             <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">Choose Entire Screen</h2>
@@ -1086,7 +1100,7 @@
         </div>
     </div>
 
-    <div x-show="screenResumeRequired && !isScreenShareLive() && !screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483646;">
+    <div x-show="screenShareSupported && screenResumeRequired && !isScreenShareLive() && !screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483646;">
         <div class="relative w-full max-w-lg rounded-[28px] border border-blue-200 bg-white p-6 shadow-2xl dark:border-blue-500/30 dark:bg-slate-900" style="z-index: 2147483647;">
             <p class="text-xs font-bold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">Monitoring Still Active</p>
             <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white" x-text="liveScreenRequestPending ? 'Admin Live View Opening' : 'Screen Share Required'"></h2>

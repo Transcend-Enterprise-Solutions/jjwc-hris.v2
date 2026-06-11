@@ -4,7 +4,6 @@ $configuredIceServers = env('WFH_MONITORING_ICE_SERVERS');
 $configuredIceServers = $configuredIceServers ? json_decode($configuredIceServers, true) : null;
 
 return [
-    'api_key' => env('WFH_MONITORING_API_KEY'),
     'ice_servers' => is_array($configuredIceServers)
         ? $configuredIceServers
         : [

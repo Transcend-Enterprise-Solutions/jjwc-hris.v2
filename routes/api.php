@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\WfhMonitoringController;
+use App\Http\Controllers\Api\WfhMonitoringAuthController;
 
 /*
 |--------------------------------------------------------------------------
@@ -19,10 +20,20 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::middleware('wfh.monitoring.key')
+Route::prefix('wfh-monitoring/auth')
+    ->name('api.wfh-monitoring.auth.')
+    ->group(function () {
+        Route::post('/login', [WfhMonitoringAuthController::class, 'login'])
+            ->middleware('throttle:10,1')
+            ->name('login');
+    });
+
+Route::middleware(['auth:sanctum', 'wfh.monitoring.admin'])
     ->prefix('wfh-monitoring')
     ->name('api.wfh-monitoring.')
     ->group(function () {
+        Route::get('/auth/me', [WfhMonitoringAuthController::class, 'me'])->name('auth.me');
+        Route::post('/auth/logout', [WfhMonitoringAuthController::class, 'logout'])->name('auth.logout');
         Route::get('/sessions', [WfhMonitoringController::class, 'index'])->name('sessions.index');
         Route::get('/sessions/{session}', [WfhMonitoringController::class, 'show'])->name('sessions.show');
         Route::get('/sessions/{session}/gps', [WfhMonitoringController::class, 'gps'])->name('sessions.gps');

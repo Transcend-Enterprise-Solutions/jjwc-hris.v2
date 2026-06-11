@@ -40,6 +40,7 @@ class WfhMonitoringController extends Controller
         return response()->json([
             'date' => $date->toDateString(),
             'stats' => $this->stats($sessions),
+            'iceServers' => config('wfh_monitoring.ice_servers', []),
             'sessions' => $sessions->map(fn ($session) => $this->sessionPayload($session))->values(),
         ]);
     }
@@ -96,6 +97,12 @@ class WfhMonitoringController extends Controller
     {
         if ($session->status === 'ended') {
             return response()->json(['message' => 'Session has ended.'], 422);
+        }
+
+        if ($this->isMobileSession($session) && ! $session->screen_share_active) {
+            return response()->json([
+                'message' => 'This mobile browser does not support browser screen broadcast. Use camera/mic, GPS, and activity monitoring.',
+            ], 422);
         }
 
         $token = (string) str()->uuid();
@@ -334,6 +341,8 @@ class WfhMonitoringController extends Controller
             'status' => $session->status,
             'workStatus' => $session->work_status,
             'screenShareActive' => (bool) $session->screen_share_active,
+            'isMobile' => $this->isMobileSession($session),
+            'screenShareSupported' => ! $this->isMobileSession($session),
             'geofenceStatus' => $session->geofence_status,
             'startedAt' => optional($session->started_at)->toIso8601String(),
             'endedAt' => optional($session->ended_at)->toIso8601String(),
@@ -435,6 +444,7 @@ class WfhMonitoringController extends Controller
             'offline' => $sessions->filter(fn ($session) => $this->monitoringState($session) === 'Offline')->count(),
             'afk' => $sessions->filter(fn ($session) => $this->monitoringState($session) === 'AFK')->count(),
             'onBreak' => $sessions->filter(fn ($session) => $this->monitoringState($session) === 'On Break')->count(),
+            'mobile' => $sessions->filter(fn ($session) => $this->monitoringState($session) === 'Mobile')->count(),
             'screenOff' => $sessions->filter(fn ($session) => $this->monitoringState($session) === 'Screen Off')->count(),
             'geofenceAlerts' => $sessions->where('geofence_status', 'outside')->count(),
         ];
@@ -458,11 +468,23 @@ class WfhMonitoringController extends Controller
             return 'AFK';
         }
 
+        if ($this->isMobileSession($session) && ! $session->screen_share_active) {
+            return 'Mobile';
+        }
+
         if (! $session->screen_share_active) {
             return 'Screen Off';
         }
 
         return 'Active';
+    }
+
+    protected function isMobileSession(WfhMonitoringSessionRecord $session): bool
+    {
+        return (bool) preg_match(
+            '/Android|iPhone|iPad|iPod|Mobile/i',
+            (string) ($session->user_agent ?: $session->device_platform)
+        );
     }
 
     protected function employeeDisplayName($user): string

@@ -32,7 +32,6 @@
     afkPromptOpen: false,
     afkTimer: null,
     clockTick: Date.now(),
-    monitoringStartedAt: @js($monitoringSessionStartedAt) ? new Date(@js($monitoringSessionStartedAt)).getTime() : Date.now(),
     onlineSeconds: @js((int) $monitoringOnlineSeconds),
     onlineTickStartedAt: Date.now(),
     metricsWindowStartedAt: Date.now(),
@@ -114,10 +113,6 @@
             }
 
             this.syncLiveSnapshotCapture(response?.liveSnapshots || null);
-
-            if (response?.sessionStartedAt) {
-                this.monitoringStartedAt = new Date(response.sessionStartedAt).getTime();
-            }
 
             if (typeof response?.onlineSeconds === 'number') {
                 this.onlineSeconds = response.onlineSeconds;
@@ -410,10 +405,6 @@
         const request = await $wire.getLiveSnapshotRequest();
         this.syncLiveSnapshotCapture(request);
     },
-    elapsedLabel() {
-        const totalSeconds = Math.max(0, Math.floor((this.clockTick - this.monitoringStartedAt) / 1000));
-        return this.formatDuration(totalSeconds);
-    },
     onlineElapsedLabel() {
         const liveSeconds = navigator.onLine
             ? Math.floor((this.clockTick - this.onlineTickStartedAt) / 1000)
@@ -461,9 +452,8 @@
             '\x3Cdiv id=&quot;popoutStatus&quot; style=&quot;border-radius:999px; padding:8px 12px; background:#dcfce7; color:#166534; font-size:12px; font-weight:800; white-space:nowrap;&quot;\x3EMonitoring active\x3C/div\x3E',
             '\x3C/div\x3E',
             '\x3Cdiv style=&quot;margin-top:16px; border-radius:24px; background:rgba(255,255,255,.12); padding:18px; box-shadow:0 24px 64px rgba(0,0,0,.28); backdrop-filter: blur(18px);&quot;\x3E',
-            '\x3Cdiv style=&quot;font-size:11px; color:#dbeafe; text-transform:uppercase; letter-spacing:.18em; font-weight:800;&quot;\x3EDaily online time\x3C/div\x3E',
+            '\x3Cdiv style=&quot;font-size:11px; color:#dbeafe; text-transform:uppercase; letter-spacing:.18em; font-weight:800;&quot;\x3EOnline today\x3C/div\x3E',
             '\x3Cdiv id=&quot;popoutElapsed&quot; style=&quot;font-size:42px; font-weight:950; line-height:1; margin-top:8px; letter-spacing:-0.04em;&quot;\x3E00:00:00\x3C/div\x3E',
-            '\x3Cdiv style=&quot;margin-top:12px; display:flex; justify-content:space-between; gap:10px; border-top:1px solid rgba(255,255,255,.14); padding-top:12px;&quot;\x3E\x3Cspan style=&quot;color:#bfdbfe; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.14em;&quot;\x3ECurrent session\x3C/span\x3E\x3Cspan id=&quot;popoutOnline&quot; style=&quot;font-family:monospace; font-size:18px; font-weight:900;&quot;\x3E00:00:00\x3C/span\x3E\x3C/div\x3E',
             '\x3Cdiv id=&quot;popoutUpdated&quot; style=&quot;font-size:12px; color:#cbd5e1; margin-top:6px;&quot;\x3ELast updated --:--:--\x3C/div\x3E',
             '\x3C/div\x3E',
             '\x3Cdiv style=&quot;display:grid; gap:10px; margin-top:12px;&quot;\x3E',
@@ -494,7 +484,6 @@
         };
 
         setText('popoutElapsed', this.onlineElapsedLabel());
-        setText('popoutOnline', this.elapsedLabel());
         setText('popoutUpdated', `Last updated ${new Date().toLocaleTimeString()}`);
         setText('popoutStatus', this.monitoringStatusLabel());
         setText('popoutScreen', this.isScreenShareLive() ? 'Sharing' : 'Off');
@@ -1010,12 +999,8 @@
                         </div>
                         <div class="mt-1 flex flex-wrap items-end gap-3">
                             <div class="rounded-2xl bg-emerald-400/10 px-3 py-1.5 ring-1 ring-emerald-300/20">
-                                <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">Daily online</p>
+                                <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-200">Online today</p>
                                 <p class="font-mono text-2xl font-black leading-none tracking-tight text-emerald-100" x-text="onlineElapsedLabel()"></p>
-                            </div>
-                            <div>
-                                <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Current session</p>
-                                <p class="font-mono text-base font-black leading-none tracking-tight" x-text="elapsedLabel()"></p>
                             </div>
                             <span class="rounded-full px-2.5 py-1 text-[11px] font-black" :class="monitoringStatusClass()" x-text="monitoringStatusLabel()"></span>
                         </div>
@@ -1439,9 +1424,8 @@
                                 <p class="mt-2 text-lg font-semibold text-slate-900 dark:text-white">{{ $monitoringLastActivity ?? 'No active session' }}</p>
                             </div>
                             <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
-                                <p class="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Daily Online Time</p>
+                                <p class="text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">Online Today</p>
                                 <p class="mt-2 text-lg font-semibold text-emerald-700 dark:text-emerald-300" x-text="onlineElapsedLabel()"></p>
-                                <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Session: <span x-text="elapsedLabel()"></span></p>
                             </div>
                         </div>
 

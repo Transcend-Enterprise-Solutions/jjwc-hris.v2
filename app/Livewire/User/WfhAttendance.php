@@ -112,8 +112,6 @@ class WfhAttendance extends Component
 
     public $monitoringLastActivity;
 
-    public $monitoringSessionStartedAt;
-
     public $monitoringOnlineSeconds = 0;
 
     public $monitoringScreenShareActive = false;
@@ -628,7 +626,6 @@ class WfhAttendance extends Component
             'screenshotIntervalMinutes' => (int) $session->screenshot_interval_minutes,
             'locationIntervalMinutes' => (int) $session->location_interval_minutes,
             'onlineSeconds' => $dailyOnlineSeconds,
-            'sessionStartedAt' => WfhMonitoringClock::sessionStartedAt($session)?->toIso8601String(),
             'screenShareActive' => (bool) $screenShareActive,
         ];
     }
@@ -1151,7 +1148,6 @@ class WfhAttendance extends Component
             $this->monitoringState = 'Offline';
             $this->monitoringWorkStatus = 'Logged Out';
             $this->monitoringLastActivity = null;
-            $this->monitoringSessionStartedAt = null;
             $this->monitoringOnlineSeconds = $this->getDailyOnlineSeconds();
             $this->monitoringScreenShareActive = false;
 
@@ -1165,7 +1161,6 @@ class WfhAttendance extends Component
         $this->monitoringState = $this->getMonitoringState($session);
         $this->monitoringWorkStatus = $session->work_status;
         $this->monitoringLastActivity = optional($session->last_activity_at)->diffForHumans();
-        $this->monitoringSessionStartedAt = WfhMonitoringClock::sessionStartedAt($session)?->toIso8601String();
         $this->monitoringOnlineSeconds = $this->getDailyOnlineSeconds($session, (int) ($session->online_seconds ?? 0));
         $this->monitoringScreenShareActive = (bool) $session->screen_share_active;
     }

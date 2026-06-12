@@ -22,6 +22,9 @@
     monitoringPopoutBlocked: false,
     monitoringPopoutAttempted: false,
     screenShareActive: @js((bool) $monitoringScreenShareActive),
+    screenShareSupported: typeof navigator.mediaDevices?.getDisplayMedia === 'function',
+    mobileDevice: /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
     screenSurfaceWarning: null,
     screenResumeRequired: false,
     afkPromptOpen: false,
@@ -78,6 +81,7 @@
             position.longitude ?? null,
             position.accuracy ?? null,
             this.screenShareActive,
+            this.screenShareSupported,
             window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true,
             navigator.platform ?? null,
             navigator.userAgent ?? null,
@@ -246,8 +250,13 @@
         return true;
     },
     async startScreenShare() {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-            $wire.recordMonitoringSignal('screen_share_unavailable', 'Screen sharing is not supported by this browser');
+        if (!this.screenShareSupported) {
+            this.screenResumeRequired = false;
+            $wire.recordMonitoringSignal(
+                'screen_share_unavailable',
+                'Screen sharing is not supported by this mobile browser',
+                { mobile: this.mobileDevice, user_agent: navigator.userAgent }
+            );
             return false;
         }
 
@@ -276,23 +285,26 @@
 
         try {
             this.screenSurfaceWarning = null;
-            this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: {
-                    displaySurface: 'monitor',
-                    logicalSurface: true,
-                    cursor: 'always',
-                },
-                audio: false,
-                preferCurrentTab: false,
-                selfBrowserSurface: 'exclude',
-                monitorTypeSurfaces: 'include',
-                surfaceSwitching: 'exclude',
-            });
+            const captureOptions = this.mobileDevice
+                ? { video: true, audio: false }
+                : {
+                    video: {
+                        displaySurface: 'monitor',
+                        logicalSurface: true,
+                        cursor: 'always',
+                    },
+                    audio: false,
+                    preferCurrentTab: false,
+                    selfBrowserSurface: 'exclude',
+                    monitorTypeSurfaces: 'include',
+                    surfaceSwitching: 'exclude',
+                };
+            this.screenStream = await navigator.mediaDevices.getDisplayMedia(captureOptions);
 
             const videoTrack = this.screenStream.getVideoTracks()[0];
             const displaySurface = videoTrack?.getSettings?.().displaySurface ?? null;
 
-            if (displaySurface !== 'monitor') {
+            if (!this.mobileDevice && displaySurface !== 'monitor') {
                 this.screenSurfaceWarning = displaySurface
                     ? 'Please choose Entire Screen / full monitor sharing, not a single window or browser tab.'
                     : 'This browser did not confirm Entire Screen sharing. Please use Chrome or Edge and choose Entire Screen / full monitor.';
@@ -390,11 +402,13 @@
     },
     monitoringStatusLabel() {
         if (this.isScreenShareLive()) return 'Monitoring active';
+        if (this.mobileDevice && !this.screenShareSupported) return 'Mobile monitoring';
         if (this.screenResumeRequired) return 'Needs screen share';
         return 'Waiting for screen share';
     },
     monitoringStatusClass() {
         if (this.isScreenShareLive()) return 'bg-emerald-100 text-emerald-700';
+        if (this.mobileDevice && !this.screenShareSupported) return 'bg-sky-100 text-sky-700';
         if (this.screenResumeRequired) return 'bg-amber-100 text-amber-700';
         return 'bg-rose-100 text-rose-700';
     },
@@ -482,9 +496,9 @@
         }
     },
     async openMonitoringPopout(auto = false) {
-            if (!this.isScreenShareLive() && !this.reconcileScreenShareState()) {
-                return;
-            }
+        if (this.mobileDevice || (!this.isScreenShareLive() && !this.reconcileScreenShareState())) {
+            return;
+        }
 
         if (this.monitoringPopout && !this.monitoringPopout.closed) {
             this.updateMonitoringPopout();
@@ -800,10 +814,19 @@
 
         try {
             if (verifyType === 'Morning In') {
-                const screenShared = this.isScreenShareLive() || await this.startScreenShare();
+                if (this.screenShareSupported) {
+                    const screenShared = this.isScreenShareLive() || await this.startScreenShare();
 
-                if (!screenShared) {
-                    return;
+                    if (!screenShared) {
+                        return;
+                    }
+                } else {
+                    this.screenResumeRequired = false;
+                    await $wire.recordMonitoringSignal(
+                        'mobile_monitoring_started',
+                        'Employee started WFH monitoring on a mobile browser without screen capture support',
+                        { user_agent: navigator.userAgent }
+                    );
                 }
             }
 
@@ -826,14 +849,14 @@
             const restoredScreenShare = this.restoreScreenShareRuntime();
             const mustShareScreen = await $wire.shouldRequireMonitoringScreenShare();
 
-            if (mustShareScreen && !restoredScreenShare && !this.hasLiveScreenTrack()) {
+            if (this.screenShareSupported && mustShareScreen && !restoredScreenShare && !this.hasLiveScreenTrack()) {
                 this.screenShareActive = false;
                 this.screenResumeRequired = true;
             }
 
             await this.syncMonitoring(true);
             this.checkLiveScreenRequest();
-            this.screenResumeRequired = mustShareScreen && !this.hasLiveScreenTrack();
+            this.screenResumeRequired = this.screenShareSupported && mustShareScreen && !this.hasLiveScreenTrack();
         });
         setInterval(() => this.syncMonitoring(true), 30000);
         setInterval(() => this.checkLiveSnapshotRequest(), 3000);
@@ -870,7 +893,7 @@
 }" class="w-full">
 
     @if ($scheduleType === 'WFH' || $wfhStatus === 'approved')
-        <div x-show="monitoringFloatOpen" x-cloak wire:ignore.self wire:key="wfh-monitoring-floating-dock" class="fixed bottom-5 left-1/2 w-[min(42rem,calc(100vw-1.5rem))] -translate-x-1/2 rounded-[2rem] border border-white/15 bg-slate-950/90 p-2.5 text-white shadow-[0_24px_80px_rgba(15,23,42,0.55)] backdrop-blur-2xl" style="z-index: 2147483644;">
+        <div x-show="monitoringFloatOpen" x-cloak wire:ignore.self wire:key="wfh-monitoring-floating-dock" class="fixed bottom-2 left-1/2 max-h-[42dvh] w-[min(42rem,calc(100vw-1rem))] -translate-x-1/2 overflow-y-auto rounded-3xl border border-white/15 bg-slate-950/90 p-2.5 text-white shadow-[0_24px_80px_rgba(15,23,42,0.55)] backdrop-blur-2xl sm:bottom-5 sm:max-h-none sm:w-[min(42rem,calc(100vw-1.5rem))] sm:overflow-visible sm:rounded-[2rem]" style="z-index: 2147483644;">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-3">
                     <div class="relative flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-lg shadow-blue-900/40"
@@ -882,7 +905,8 @@
                     <div>
                         <div class="flex flex-wrap items-center gap-2">
                             <p class="text-[11px] font-black uppercase tracking-[0.22em] text-blue-200">WFH monitor</p>
-                            <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-slate-200" x-text="isScreenShareLive() ? 'Auto floating ready' : 'Needs share'"></span>
+                            <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-slate-200"
+                                x-text="isScreenShareLive() ? 'Screen sharing' : (screenShareSupported ? 'Tap display to share' : 'Mobile mode')"></span>
                         </div>
                         <div class="mt-1 flex flex-wrap items-end gap-3">
                             <div class="rounded-2xl bg-emerald-400/10 px-3 py-1.5 ring-1 ring-emerald-300/20">
@@ -895,6 +919,9 @@
                             </div>
                             <span class="rounded-full px-2.5 py-1 text-[11px] font-black" :class="monitoringStatusClass()" x-text="monitoringStatusLabel()"></span>
                         </div>
+                        <p x-show="mobileDevice && !screenShareSupported" x-cloak class="mt-2 max-w-sm text-[11px] leading-4 text-sky-200">
+                            This browser blocks device-screen capture. GPS and activity monitoring remain active.
+                        </p>
                     </div>
                 </div>
 
@@ -915,9 +942,9 @@
                 </button>
 
                 <div class="flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" @click="isScreenShareLive() ? stopScreenShare() : startScreenShare()" class="relative flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-blue-950/30 transition"
-                        :class="isScreenShareLive() ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-500 hover:bg-amber-400'"
-                        :title="isScreenShareLive() ? 'Cancel screen sharing' : 'Start screen sharing'">
+                    <button type="button" @click="screenShareSupported && (isScreenShareLive() ? stopScreenShare() : startScreenShare())" class="relative flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-blue-950/30 transition"
+                        :class="!screenShareSupported ? 'cursor-not-allowed bg-slate-700' : (isScreenShareLive() ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-500 hover:bg-amber-400')"
+                        :title="!screenShareSupported ? 'This mobile browser does not provide screen sharing' : (isScreenShareLive() ? 'Cancel screen sharing' : 'Start screen sharing')">
                         <i class="bi bi-display-fill"></i>
                         <span x-show="!isScreenShareLive()" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-white shadow"></span>
                     </button>
@@ -974,7 +1001,7 @@
         </div>
     </div>
 
-    <div x-show="screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483647;">
+    <div x-show="screenSurfaceWarning && screenShareSupported" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483647;">
         <div class="relative w-full max-w-lg rounded-2xl border border-rose-200 bg-white p-6 shadow-2xl dark:border-rose-500/30 dark:bg-slate-900" style="z-index: 2147483647;">
             <p class="text-xs font-bold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-300">Screen Share Required</p>
             <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">Choose Entire Screen</h2>
@@ -993,7 +1020,7 @@
         </div>
     </div>
 
-    <div x-show="screenResumeRequired && !isScreenShareLive() && !screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483646;">
+    <div x-show="screenShareSupported && screenResumeRequired && !isScreenShareLive() && !screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483646;">
         <div class="relative w-full max-w-lg rounded-[28px] border border-blue-200 bg-white p-6 shadow-2xl dark:border-blue-500/30 dark:bg-slate-900" style="z-index: 2147483647;">
             <p class="text-xs font-bold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">Monitoring Still Active</p>
             <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">Screen Share Required</h2>

@@ -131,6 +131,10 @@ class WfhMonitoring extends Component
             return 'AFK';
         }
 
+        if ($this->isMobileSession($session) && ! $session->screen_share_active) {
+            return 'Mobile';
+        }
+
         if (! $session->screen_share_active) {
             return 'Screen Off';
         }
@@ -145,9 +149,28 @@ class WfhMonitoring extends Component
             'AFK' => 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
             'On Break' => 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
             'Offline' => 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300',
+            'Mobile' => 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
             'Screen Off' => 'bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
             default => 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
         };
+    }
+
+    protected function isMobileSession($session): bool
+    {
+        $meta = is_array($session?->meta) ? $session->meta : [];
+
+        if (array_key_exists('screen_share_supported', $meta)) {
+            return ! (bool) $meta['screen_share_supported'];
+        }
+
+        if (($meta['monitoring_mode'] ?? null) === 'mobile') {
+            return true;
+        }
+
+        return (bool) preg_match(
+            '/Android|iPhone|iPad|iPod|Mobile/i',
+            (string) ($session?->user_agent ?: $session?->device_platform)
+        );
     }
 
     public function requestLiveScreen($sessionId)
@@ -486,7 +509,7 @@ class WfhMonitoring extends Component
     {
         return [
             'total' => $sessions->count(),
-            'active' => $sessions->filter(fn ($session) => $this->monitoringStateFor($session) === 'Active')->count(),
+            'active' => $sessions->filter(fn ($session) => in_array($this->monitoringStateFor($session), ['Active', 'Mobile'], true))->count(),
             'offline' => $sessions->filter(fn ($session) => $this->monitoringStateFor($session) === 'Offline')->count(),
             'afk' => $sessions->filter(fn ($session) => $this->monitoringStateFor($session) === 'AFK')->count(),
             'on_break' => $sessions->filter(fn ($session) => $this->monitoringStateFor($session) === 'On Break')->count(),

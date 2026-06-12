@@ -434,6 +434,7 @@ class WfhAttendance extends Component
         $longitude = null,
         $accuracy = null,
         $screenShareActive = false,
+        $screenShareSupported = true,
         $isPwa = false,
         $platform = null,
         $userAgent = null,
@@ -519,6 +520,8 @@ class WfhAttendance extends Component
                 'last_latitude' => $latitude,
                 'last_longitude' => $longitude,
                 'screen_share_active' => (bool) $screenShareActive,
+                'screen_share_supported' => (bool) $screenShareSupported,
+                'monitoring_mode' => $screenShareSupported ? 'screen' : 'mobile',
                 'last_activity_metrics' => $activityMetrics,
             ]),
         ]);

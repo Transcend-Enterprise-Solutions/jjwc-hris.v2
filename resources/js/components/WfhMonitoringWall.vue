@@ -180,29 +180,33 @@
             </div>
           </article>
 
-          <article class="wfh-wall__detail-card">
-            <div class="wfh-wall__card-head">
-              <h3>Recent Activity</h3>
-              <select v-model="activityFilter" class="wfh-wall__activity-filter">
-                <option value="all">All</option>
-                <option value="screen">Screen</option>
-                <option value="location">Location</option>
-                <option value="session">Session</option>
-                <option value="alerts">Alerts</option>
-              </select>
-            </div>
-            <ol class="wfh-wall__events">
-              <li v-for="event in filteredEvents" :key="event.id">
-                <span></span>
-                <div>
-                  <strong>{{ event.label || event.type }}</strong>
-                  <small>{{ formatTime(event.occurredAt) }}</small>
-                </div>
-              </li>
-              <li v-if="!filteredEvents.length" class="empty">No matching activity.</li>
-            </ol>
-          </article>
         </aside>
+
+        <section class="wfh-wall__detail-card wfh-wall__activity-panel">
+          <div class="wfh-wall__card-head">
+            <div>
+              <h3>Recent Activity</h3>
+              <p>Latest monitoring events for {{ selectedSession?.employee?.name || 'the selected employee' }}</p>
+            </div>
+            <select v-model="activityFilter" class="wfh-wall__activity-filter">
+              <option value="all">All activity</option>
+              <option value="screen">Screen</option>
+              <option value="location">Location</option>
+              <option value="session">Session</option>
+              <option value="alerts">Alerts</option>
+            </select>
+          </div>
+          <ol class="wfh-wall__events">
+            <li v-for="event in filteredEvents" :key="event.id">
+              <span></span>
+              <div>
+                <strong>{{ event.label || event.type }}</strong>
+                <small>{{ formatTime(event.occurredAt) }}</small>
+              </div>
+            </li>
+            <li v-if="!filteredEvents.length" class="empty">No matching activity.</li>
+          </ol>
+        </section>
       </main>
 
       <main v-show="activeView === 'locations'" class="wfh-wall__location-layout">
@@ -2242,6 +2246,18 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+.wfh-wall__card-head p {
+  margin-top: 3px;
+  color: var(--wall-muted);
+  font-size: 12px;
+}
+
+.wfh-wall__activity-panel {
+  grid-column: 1 / -1;
+  min-height: 260px;
+  padding: 18px;
+}
+
 .wfh-wall__activity-filter {
   min-height: 34px;
   border: 1px solid var(--wall-border);
@@ -2865,16 +2881,24 @@ onBeforeUnmount(() => {
 
 .wfh-wall__events {
   display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  max-height: 280px;
+  max-height: 360px;
   overflow: auto;
   margin-top: 12px;
+  padding-right: 6px;
 }
 
 .wfh-wall__events li {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
   gap: 10px;
+  min-height: 78px;
+  border: 1px solid var(--wall-border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--wall-panel-strong);
 }
 
 .wfh-wall__events li > span {
@@ -2893,6 +2917,8 @@ onBeforeUnmount(() => {
 
 .wfh-wall__events .empty {
   display: block;
+  grid-column: 1 / -1;
+  min-height: 0;
   color: var(--wall-muted);
   font-size: 13px;
 }
@@ -2918,6 +2944,10 @@ onBeforeUnmount(() => {
     grid-column: 1 / -1;
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .wfh-wall__events {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1100px) {
@@ -2928,6 +2958,10 @@ onBeforeUnmount(() => {
   .wfh-wall__layout,
   .wfh-wall__location-layout,
   .wfh-wall__side {
+    grid-template-columns: 1fr;
+  }
+
+  .wfh-wall__events {
     grid-template-columns: 1fr;
   }
 

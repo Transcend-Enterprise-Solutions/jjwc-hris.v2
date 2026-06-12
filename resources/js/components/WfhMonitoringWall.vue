@@ -1,5 +1,5 @@
 <template>
-  <section ref="wallRoot" :class="['wfh-wall', 'w-full', { 'is-standalone': props.standalone }]">
+  <section ref="wallRoot" :class="['wfh-wall', 'w-full', { 'is-standalone': props.standalone, 'is-dark': isDark }]">
     <div class="wfh-wall__shell">
       <header class="wfh-wall__header">
         <div>
@@ -550,11 +550,13 @@ const reportPreviewRows = ref([]);
 const reportPreviewTotal = ref(0);
 const reportPreviewLoading = ref(false);
 const reportPreviewTimer = ref(null);
+const isDark = ref(false);
 let locationMap = null;
 let locationBounds = null;
 let locationMarkers = new Map();
 let locationInfoWindow = null;
 let googleMapsLoadPromise = null;
+let themeObserver = null;
 
 const GOOGLE_MAPS_API_KEY = 'AIzaSyBvGOC4HUPjiDuOE2yr7CwbnC4j6vsa274';
 const PH_CENTER = { lat: 12.8797, lng: 121.7740 };
@@ -1701,6 +1703,15 @@ const syncFullscreenState = () => {
   isFullscreen.value = Boolean(document.fullscreenElement);
 };
 
+const syncThemeState = () => {
+  isDark.value = document.documentElement.classList.contains('dark')
+    || localStorage.getItem('dark-mode') === 'true';
+};
+
+const handleThemeStorage = (event) => {
+  if (event.key === 'dark-mode') syncThemeState();
+};
+
 const stateClass = (state = '') => {
   const normalized = String(state).toLowerCase();
   if (normalized.includes('active')) return 'state-active';
@@ -1768,6 +1779,12 @@ watch([sessions, selectedSessionId, activeView], () => {
 
 onMounted(async () => {
   document.addEventListener('fullscreenchange', syncFullscreenState);
+  document.addEventListener('darkMode', syncThemeState);
+  window.addEventListener('storage', handleThemeStorage);
+  window.addEventListener('focus', syncThemeState);
+  syncThemeState();
+  themeObserver = new MutationObserver(syncThemeState);
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   await loadSessions();
   refreshTimer.value = window.setInterval(() => {
     loadSessions({ silent: true });
@@ -1777,6 +1794,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreenState);
+  document.removeEventListener('darkMode', syncThemeState);
+  window.removeEventListener('storage', handleThemeStorage);
+  window.removeEventListener('focus', syncThemeState);
+  themeObserver?.disconnect();
   window.clearInterval(refreshTimer.value);
   window.clearTimeout(searchTimer.value);
   window.clearTimeout(reportPreviewTimer.value);
@@ -1807,7 +1828,8 @@ onBeforeUnmount(() => {
   color: var(--wall-text);
 }
 
-:global(.dark) .wfh-wall {
+:global(.dark) .wfh-wall,
+.wfh-wall.is-dark {
   --wall-bg: #07111f;
   --wall-shell: #07111f;
   --wall-panel: #0b1628;
@@ -1872,7 +1894,8 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 
-:global(.dark) .wfh-wall__eyebrow {
+:global(.dark) .wfh-wall__eyebrow,
+.wfh-wall.is-dark .wfh-wall__eyebrow {
   color: #67e8f9;
 }
 
@@ -1990,7 +2013,8 @@ onBeforeUnmount(() => {
   color: #047857;
 }
 
-:global(.dark) .wfh-wall__auto-badge.live {
+:global(.dark) .wfh-wall__auto-badge.live,
+.wfh-wall.is-dark .wfh-wall__auto-badge.live {
   color: #6ee7b7;
 }
 
@@ -2046,7 +2070,8 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
-:global(.dark) .wfh-wall__alert {
+:global(.dark) .wfh-wall__alert,
+.wfh-wall.is-dark .wfh-wall__alert {
   color: #fecdd3;
 }
 
@@ -2375,7 +2400,8 @@ onBeforeUnmount(() => {
   font-size: 34px;
 }
 
-:global(.dark) .wfh-wall__video-empty i {
+:global(.dark) .wfh-wall__video-empty i,
+.wfh-wall.is-dark .wfh-wall__video-empty i {
   color: #38bdf8;
 }
 
@@ -2597,7 +2623,8 @@ onBeforeUnmount(() => {
   color: #047857;
 }
 
-:global(.dark) .wfh-wall__steps li.done::after {
+:global(.dark) .wfh-wall__steps li.done::after,
+.wfh-wall.is-dark .wfh-wall__steps li.done::after {
   color: #6ee7b7;
 }
 

@@ -71,5 +71,6 @@ class Kernel extends HttpKernel
         'checkrole' => \App\Http\Middleware\CheckRole::class,
         'track.account.switching' => \App\Http\Middleware\TrackAccountSwitching::class,
         'checkoic' => \App\Http\Middleware\CheckOIC::class,
+        'wfh.monitoring.key' => \App\Http\Middleware\EnsureWfhMonitoringApiKey::class,
     ];
 }

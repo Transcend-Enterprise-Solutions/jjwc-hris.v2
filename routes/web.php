@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountSwitchController;
+use App\Http\Controllers\Api\WfhMonitoringController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DataFeedController;
 use App\Livewire\Admin\AdminLeaveRequest;
@@ -59,6 +60,33 @@ Route::get('/contact-us', function () {
 
 Route::middleware(['auth', 'checkrole:sa,hr,sv,pa'])->get('/dashboard', [DashboardController::class, 'index'])->name('/dashboard');
 Route::middleware(['auth', 'checkrole:sa,hr,sv,pa'])->get('/json-data-feed', [DataFeedController::class, 'getDataFeed'])->name('json_data_feed');
+Route::view('/wfh-monitoring/wall', 'admin.wfh-monitoring-wall')
+    ->middleware(['auth', 'checkrole:sa,hr,sv,pa'])
+    ->name('wfh-monitoring.wall');
+Route::middleware(['auth', 'checkrole:sa,hr,sv,pa'])
+    ->prefix('wfh-monitoring/api')
+    ->name('wfh-monitoring.api.')
+    ->group(function () {
+        Route::get('/sessions', [WfhMonitoringController::class, 'index'])->name('sessions.index');
+        Route::get('/sessions/{session}', [WfhMonitoringController::class, 'show'])->name('sessions.show');
+        Route::get('/sessions/{session}/gps', [WfhMonitoringController::class, 'gps'])->name('sessions.gps');
+        Route::get('/rules', [WfhMonitoringController::class, 'rules'])->name('rules.index');
+
+        Route::post('/sessions/{session}/snapshot/request', [WfhMonitoringController::class, 'requestSnapshot'])->name('snapshot.request');
+        Route::post('/sessions/{session}/live-snapshots/start', [WfhMonitoringController::class, 'startLiveSnapshots'])->name('live-snapshots.start');
+        Route::get('/sessions/{session}/live-snapshots/latest', [WfhMonitoringController::class, 'latestScreenshot'])->name('live-snapshots.latest');
+        Route::post('/sessions/{session}/live-snapshots/stop', [WfhMonitoringController::class, 'stopLiveSnapshots'])->name('live-snapshots.stop');
+
+        Route::post('/sessions/{session}/live-screen/request', [WfhMonitoringController::class, 'requestLiveScreen'])->name('live-screen.request');
+        Route::post('/sessions/{session}/live-screen/offer', [WfhMonitoringController::class, 'publishLiveScreenOffer'])->name('live-screen.offer');
+        Route::get('/sessions/{session}/live-screen/signal', [WfhMonitoringController::class, 'liveScreenSignal'])->name('live-screen.signal');
+        Route::post('/sessions/{session}/live-screen/stop', [WfhMonitoringController::class, 'stopLiveScreen'])->name('live-screen.stop');
+
+        Route::post('/sessions/{session}/live-media/request', [WfhMonitoringController::class, 'requestLiveMedia'])->name('live-media.request');
+        Route::post('/sessions/{session}/live-media/offer', [WfhMonitoringController::class, 'publishLiveMediaOffer'])->name('live-media.offer');
+        Route::get('/sessions/{session}/live-media/signal', [WfhMonitoringController::class, 'liveMediaSignal'])->name('live-media.signal');
+        Route::post('/sessions/{session}/live-media/stop', [WfhMonitoringController::class, 'stopLiveMedia'])->name('live-media.stop');
+    });
 Route::middleware('auth')->group(function () {
     RouteService::registerDynamicRoutes();
 });

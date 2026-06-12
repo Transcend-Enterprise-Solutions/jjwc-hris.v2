@@ -11,6 +11,10 @@
     liveSnapshotUploading: false,
     liveScreenPeer: null,
     liveScreenToken: null,
+    liveScreenAnswering: false,
+    liveScreenRequestPending: false,
+    liveScreenRequestToken: null,
+    liveScreenNeedsShareReportedToken: null,
     liveMediaPeer: null,
     liveMediaToken: null,
     liveMediaStream: null,
@@ -22,9 +26,6 @@
     monitoringPopoutBlocked: false,
     monitoringPopoutAttempted: false,
     screenShareActive: @js((bool) $monitoringScreenShareActive),
-    screenShareSupported: typeof navigator.mediaDevices?.getDisplayMedia === 'function',
-    mobileDevice: /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
-        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
     screenSurfaceWarning: null,
     screenResumeRequired: false,
     afkPromptOpen: false,
@@ -44,6 +45,7 @@
     screenshotIntervalMinutes: @js($screenshotIntervalMinutes),
     locationIntervalMinutes: @js($locationIntervalMinutes),
     afkThresholdMinutes: @js($afkThresholdMinutes),
+    rtcIceServers: @js(config('wfh_monitoring.ice_servers')),
     lastLocationReadAt: 0,
     lastKnownPosition: {},
     punchSubmitting: false,
@@ -72,6 +74,8 @@
         }
 
         this.lastMonitoringPing = now;
+        const screenShareLive = this.isScreenShareLive();
+        this.screenShareActive = screenShareLive;
         const position = options.skipLocation ? this.lastKnownPosition : await this.getMonitoringPosition();
         const response = await $wire.recordMonitoringHeartbeat(
             document.title,
@@ -80,8 +84,7 @@
             position.latitude ?? null,
             position.longitude ?? null,
             position.accuracy ?? null,
-            this.screenShareActive,
-            this.screenShareSupported,
+            screenShareLive,
             window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true,
             navigator.platform ?? null,
             navigator.userAgent ?? null,
@@ -117,7 +120,11 @@
         }
 
         if (typeof response?.screenShareActive === 'boolean') {
-            this.screenShareActive = this.hasLiveScreenTrack() || this.monitoringRuntime().screenShareActive === true || response.screenShareActive;
+            this.screenShareActive = this.isScreenShareLive();
+
+            if (response.screenShareActive && !this.screenShareActive) {
+                this.screenResumeRequired = true;
+            }
         }
     },
     async getMonitoringPosition() {
@@ -209,11 +216,32 @@
 
         return window.jjwcWfhMonitorState;
     },
+    hasLiveScreenTrackFor(stream) {
+        return !!stream?.getVideoTracks?.().some((track) => track.readyState === 'live');
+    },
+    runtimeScreenStream() {
+        const runtime = this.monitoringRuntime();
+
+        if (!this.hasLiveScreenTrackFor(runtime.screenStream)) {
+            runtime.screenStream = null;
+            runtime.screenShareActive = false;
+            return null;
+        }
+
+        return runtime.screenStream;
+    },
     hasLiveScreenTrack() {
-        return !!this.screenStream?.getVideoTracks().some((track) => track.readyState === 'live');
+        return this.hasLiveScreenTrackFor(this.screenStream);
     },
     isScreenShareLive() {
-        return this.hasLiveScreenTrack() || this.screenShareActive || this.monitoringRuntime().screenShareActive === true;
+        const runtimeStream = this.runtimeScreenStream();
+
+        if (!this.hasLiveScreenTrack() && runtimeStream) {
+            this.screenStream = runtimeStream;
+            this.attachScreenVideo();
+        }
+
+        return this.hasLiveScreenTrack();
     },
     attachScreenVideo() {
         if (!this.screenStream) {
@@ -250,13 +278,8 @@
         return true;
     },
     async startScreenShare() {
-        if (!this.screenShareSupported) {
-            this.screenResumeRequired = false;
-            $wire.recordMonitoringSignal(
-                'screen_share_unavailable',
-                'Screen sharing is not supported by this mobile browser',
-                { mobile: this.mobileDevice, user_agent: navigator.userAgent }
-            );
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+            $wire.recordMonitoringSignal('screen_share_unavailable', 'Screen sharing is not supported by this browser');
             return false;
         }
 
@@ -285,26 +308,23 @@
 
         try {
             this.screenSurfaceWarning = null;
-            const captureOptions = this.mobileDevice
-                ? { video: true, audio: false }
-                : {
-                    video: {
-                        displaySurface: 'monitor',
-                        logicalSurface: true,
-                        cursor: 'always',
-                    },
-                    audio: false,
-                    preferCurrentTab: false,
-                    selfBrowserSurface: 'exclude',
-                    monitorTypeSurfaces: 'include',
-                    surfaceSwitching: 'exclude',
-                };
-            this.screenStream = await navigator.mediaDevices.getDisplayMedia(captureOptions);
+            this.screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: {
+                    displaySurface: 'monitor',
+                    logicalSurface: true,
+                    cursor: 'always',
+                },
+                audio: false,
+                preferCurrentTab: false,
+                selfBrowserSurface: 'exclude',
+                monitorTypeSurfaces: 'include',
+                surfaceSwitching: 'exclude',
+            });
 
             const videoTrack = this.screenStream.getVideoTracks()[0];
             const displaySurface = videoTrack?.getSettings?.().displaySurface ?? null;
 
-            if (!this.mobileDevice && displaySurface !== 'monitor') {
+            if (displaySurface !== 'monitor') {
                 this.screenSurfaceWarning = displaySurface
                     ? 'Please choose Entire Screen / full monitor sharing, not a single window or browser tab.'
                     : 'This browser did not confirm Entire Screen sharing. Please use Chrome or Edge and choose Entire Screen / full monitor.';
@@ -402,13 +422,11 @@
     },
     monitoringStatusLabel() {
         if (this.isScreenShareLive()) return 'Monitoring active';
-        if (this.mobileDevice && !this.screenShareSupported) return 'Mobile monitoring';
         if (this.screenResumeRequired) return 'Needs screen share';
         return 'Waiting for screen share';
     },
     monitoringStatusClass() {
         if (this.isScreenShareLive()) return 'bg-emerald-100 text-emerald-700';
-        if (this.mobileDevice && !this.screenShareSupported) return 'bg-sky-100 text-sky-700';
         if (this.screenResumeRequired) return 'bg-amber-100 text-amber-700';
         return 'bg-rose-100 text-rose-700';
     },
@@ -440,13 +458,8 @@
             '\x3Cdiv style=&quot;margin-top:12px; display:flex; justify-content:space-between; gap:10px; border-top:1px solid rgba(255,255,255,.14); padding-top:12px;&quot;\x3E\x3Cspan style=&quot;color:#bfdbfe; font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:.14em;&quot;\x3ECurrent session\x3C/span\x3E\x3Cspan id=&quot;popoutOnline&quot; style=&quot;font-family:monospace; font-size:18px; font-weight:900;&quot;\x3E00:00:00\x3C/span\x3E\x3C/div\x3E',
             '\x3Cdiv id=&quot;popoutUpdated&quot; style=&quot;font-size:12px; color:#cbd5e1; margin-top:6px;&quot;\x3ELast updated --:--:--\x3C/div\x3E',
             '\x3C/div\x3E',
-            '\x3Cdiv style=&quot;display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px; margin-top:12px;&quot;\x3E',
+            '\x3Cdiv style=&quot;display:grid; gap:10px; margin-top:12px;&quot;\x3E',
             '\x3Cdiv style=&quot;border-radius:18px; background:rgba(255,255,255,.09); padding:12px 14px;&quot;\x3E\x3Cdiv style=&quot;font-size:11px; color:#cbd5e1; text-transform:uppercase; font-weight:800;&quot;\x3EScreen\x3C/div\x3E\x3Cdiv id=&quot;popoutScreen&quot; style=&quot;margin-top:4px; font-size:18px; font-weight:900;&quot;\x3EOff\x3C/div\x3E\x3C/div\x3E',
-            '\x3Cdiv style=&quot;border-radius:18px; background:rgba(255,255,255,.09); padding:12px 14px;&quot;\x3E\x3Cdiv style=&quot;font-size:11px; color:#cbd5e1; text-transform:uppercase; font-weight:800;&quot;\x3ECam/Mic\x3C/div\x3E\x3Cdiv id=&quot;popoutMedia&quot; style=&quot;margin-top:4px; font-size:18px; font-weight:900;&quot;\x3EOff\x3C/div\x3E\x3C/div\x3E',
-            '\x3C/div\x3E',
-            '\x3Cdiv style=&quot;display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px;&quot;\x3E',
-            '\x3Cbutton id=&quot;popoutMic&quot; type=&quot;button&quot; style=&quot;border:0; border-radius:14px; padding:13px 12px; font-weight:900; cursor:pointer; background:#e0f2fe; color:#0f172a;&quot;\x3EMic\x3C/button\x3E',
-            '\x3Cbutton id=&quot;popoutCamera&quot; type=&quot;button&quot; style=&quot;border:0; border-radius:14px; padding:13px 12px; font-weight:900; cursor:pointer; background:#f3e8ff; color:#0f172a;&quot;\x3ECamera\x3C/button\x3E',
             '\x3C/div\x3E',
             '\x3Cbutton id=&quot;popoutScreenToggle&quot; type=&quot;button&quot; style=&quot;width:100%; margin-top:12px; border:0; border-radius:16px; padding:14px; background:#2563eb; color:#fff; font-weight:950; cursor:pointer; box-shadow:0 18px 40px rgba(37,99,235,.35);&quot;\x3EStart Screen Sharing\x3C/button\x3E',
             '\x3Cp style=&quot;font-size:11px; line-height:1.5; color:#dbeafe; margin-top:12px;&quot;\x3EKeep the main HRIS tab open. The button changes automatically between sharing and canceling when the live screen stream is present.\x3C/p\x3E',
@@ -496,9 +509,9 @@
         }
     },
     async openMonitoringPopout(auto = false) {
-        if (this.mobileDevice || (!this.isScreenShareLive() && !this.reconcileScreenShareState())) {
-            return;
-        }
+            if (!this.isScreenShareLive() && !this.reconcileScreenShareState()) {
+                return;
+            }
 
         if (this.monitoringPopout && !this.monitoringPopout.closed) {
             this.updateMonitoringPopout();
@@ -533,8 +546,6 @@
         popout.document.open();
         popout.document.write(this.monitoringPopoutMarkup());
         popout.document.close();
-        popout.document.getElementById('popoutMic')?.addEventListener('click', () => this.toggleLiveMediaMic());
-        popout.document.getElementById('popoutCamera')?.addEventListener('click', () => this.toggleLiveMediaCamera());
         popout.document.getElementById('popoutScreenToggle')?.addEventListener('click', () => {
             if (this.isScreenShareLive()) {
                 this.stopScreenShare();
@@ -605,37 +616,129 @@
             });
         });
     },
-    async checkLiveScreenRequest() {
-        const screenStream = this.screenStream || this.monitoringRuntime().screenStream;
+    rtcPeerConfig() {
+        return {
+            iceServers: Array.isArray(this.rtcIceServers) && this.rtcIceServers.length
+                ? this.rtcIceServers
+                : [{ urls: 'stun:stun.l.google.com:19302' }],
+            iceTransportPolicy: 'all',
+        };
+    },
+    sanitizeRtcDescription(description) {
+        if (!description?.sdp) {
+            return description;
+        }
 
-        if (!screenStream || !screenStream.getVideoTracks().some((track) => track.readyState === 'live') || !window.RTCPeerConnection) {
+        const lines = String(description.sdp).split(/\r?\n/);
+        const blockedPayloads = new Set();
+
+        lines.forEach((line) => {
+            const payload = line.match(/^a=(?:rtpmap|fmtp):(\d+)/)?.[1];
+
+            if (!payload) return;
+
+            if (/^a=rtpmap:\d+\s+flexfec-03\/90000/i.test(line) || /^a=fmtp:\d+.*repair-window=/i.test(line)) {
+                blockedPayloads.add(payload);
+            }
+        });
+
+        if (!blockedPayloads.size) {
+            return description;
+        }
+
+        const sanitized = lines
+            .map((line) => {
+                if (!line.startsWith('m=video ')) return line;
+
+                const parts = line.trim().split(/\s+/);
+                return parts.filter((part, index) => index < 3 || !blockedPayloads.has(part)).join(' ');
+            })
+            .filter((line) => {
+                const payload = line.match(/^a=(?:rtpmap|rtcp-fb|fmtp):(\d+)/)?.[1];
+                return !payload || !blockedPayloads.has(payload);
+            })
+            .join('\r\n');
+
+        return {
+            type: description.type,
+            sdp: sanitized.endsWith('\r\n') ? sanitized : `${sanitized}\r\n`,
+        };
+    },
+    async checkLiveScreenRequest() {
+        if (this.liveScreenAnswering) {
+            return;
+        }
+
+        if (!window.RTCPeerConnection) {
             return;
         }
 
         const request = await $wire.getLiveScreenRequest();
 
+        if (!request?.token) {
+            this.liveScreenRequestPending = false;
+            this.liveScreenRequestToken = null;
+            this.liveScreenNeedsShareReportedToken = null;
+            return;
+        }
+
+        this.liveScreenRequestPending = Boolean(request?.offer);
+        this.liveScreenRequestToken = request.token;
+
         if (!request?.token || !request?.offer || request.token === this.liveScreenToken) {
             return;
         }
 
-        this.liveScreenToken = request.token;
+        const screenStream = this.hasLiveScreenTrack() ? this.screenStream : this.runtimeScreenStream();
 
-        if (this.liveScreenPeer) {
-            this.liveScreenPeer.close();
+        if (!this.hasLiveScreenTrackFor(screenStream)) {
+            this.screenShareActive = false;
+            this.screenResumeRequired = true;
+            this.liveScreenRequestPending = true;
+
+            if (this.liveScreenNeedsShareReportedToken !== request.token) {
+                this.liveScreenNeedsShareReportedToken = request.token;
+                await $wire.markLiveScreenNeedsShare(request.token);
+            }
+
+            return;
         }
 
-        this.screenStream = screenStream;
-        const peer = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-        });
+        this.liveScreenAnswering = true;
+        let peer = null;
 
-        screenStream.getTracks().forEach((track) => peer.addTrack(track, screenStream));
-        await peer.setRemoteDescription(new RTCSessionDescription(request.offer));
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
-        await this.waitForIceGathering(peer);
-        await $wire.publishLiveAnswer(request.token, peer.localDescription.toJSON());
-        this.liveScreenPeer = peer;
+        try {
+            this.liveScreenToken = request.token;
+
+            if (this.liveScreenPeer) {
+                this.liveScreenPeer.close();
+            }
+
+            this.screenStream = screenStream;
+            peer = new RTCPeerConnection(this.rtcPeerConfig());
+
+            screenStream.getTracks().forEach((track) => peer.addTrack(track, screenStream));
+            await peer.setRemoteDescription(new RTCSessionDescription(this.sanitizeRtcDescription(request.offer)));
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+            await this.waitForIceGathering(peer);
+            await $wire.publishLiveAnswer(request.token, this.sanitizeRtcDescription(peer.localDescription.toJSON()));
+            this.liveScreenPeer = peer;
+            this.liveScreenRequestPending = false;
+            this.liveScreenNeedsShareReportedToken = null;
+            this.screenResumeRequired = false;
+        } catch (error) {
+            if (peer) {
+                peer.close();
+            }
+
+            this.liveScreenPeer = null;
+            this.liveScreenToken = null;
+            this.liveScreenRequestPending = true;
+            await $wire.failLiveScreenAnswer(request.token, error?.message ?? 'Live screen answer failed');
+        } finally {
+            this.liveScreenAnswering = false;
+        }
     },
     async checkLiveMediaRequest() {
         if (!window.RTCPeerConnection || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -656,22 +759,21 @@
 
         try {
             if (!this.liveMediaStream && !await this.startLiveMediaPreview()) {
+                await $wire.failLiveMediaAnswer(request.token, 'Employee did not grant camera and microphone permission.');
                 return;
             }
 
-            const peer = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-            });
+            const peer = new RTCPeerConnection(this.rtcPeerConfig());
 
             this.liveMediaStream.getTracks().forEach((track) => peer.addTrack(track, this.liveMediaStream));
-            await peer.setRemoteDescription(new RTCSessionDescription(request.offer));
+            await peer.setRemoteDescription(new RTCSessionDescription(this.sanitizeRtcDescription(request.offer)));
             const answer = await peer.createAnswer();
             await peer.setLocalDescription(answer);
             await this.waitForIceGathering(peer);
-            await $wire.publishLiveMediaAnswer(request.token, peer.localDescription.toJSON());
+            await $wire.publishLiveMediaAnswer(request.token, this.sanitizeRtcDescription(peer.localDescription.toJSON()));
             this.liveMediaPeer = peer;
         } catch (error) {
-            $wire.recordMonitoringSignal('live_media_denied', 'Employee did not grant camera and microphone permission', { message: error?.message ?? 'Permission denied' });
+            await $wire.failLiveMediaAnswer(request.token, error?.message ?? 'Camera and microphone connection failed');
         }
     },
     syncLiveMediaTrackState() {
@@ -814,19 +916,10 @@
 
         try {
             if (verifyType === 'Morning In') {
-                if (this.screenShareSupported) {
-                    const screenShared = this.isScreenShareLive() || await this.startScreenShare();
+                const screenShared = this.isScreenShareLive() || await this.startScreenShare();
 
-                    if (!screenShared) {
-                        return;
-                    }
-                } else {
-                    this.screenResumeRequired = false;
-                    await $wire.recordMonitoringSignal(
-                        'mobile_monitoring_started',
-                        'Employee started WFH monitoring on a mobile browser without screen capture support',
-                        { user_agent: navigator.userAgent }
-                    );
+                if (!screenShared) {
+                    return;
                 }
             }
 
@@ -849,19 +942,17 @@
             const restoredScreenShare = this.restoreScreenShareRuntime();
             const mustShareScreen = await $wire.shouldRequireMonitoringScreenShare();
 
-            if (this.screenShareSupported && mustShareScreen && !restoredScreenShare && !this.hasLiveScreenTrack()) {
+            if (mustShareScreen && !restoredScreenShare && !this.hasLiveScreenTrack()) {
                 this.screenShareActive = false;
                 this.screenResumeRequired = true;
             }
 
             await this.syncMonitoring(true);
             this.checkLiveScreenRequest();
-            this.screenResumeRequired = this.screenShareSupported && mustShareScreen && !this.hasLiveScreenTrack();
+            this.screenResumeRequired = mustShareScreen && !this.hasLiveScreenTrack();
         });
         setInterval(() => this.syncMonitoring(true), 30000);
         setInterval(() => this.checkLiveSnapshotRequest(), 3000);
-        setInterval(() => this.checkLiveScreenRequest(), 1500);
-        setInterval(() => this.checkLiveMediaRequest(), 5000);
         this.resetAfkTimer();
         window.addEventListener('mousemove', () => this.markActivity('mouse'));
         window.addEventListener('keydown', () => this.markActivity('key'));
@@ -893,7 +984,7 @@
 }" class="w-full">
 
     @if ($scheduleType === 'WFH' || $wfhStatus === 'approved')
-        <div x-show="monitoringFloatOpen" x-cloak wire:ignore.self wire:key="wfh-monitoring-floating-dock" class="fixed bottom-2 left-1/2 max-h-[42dvh] w-[min(42rem,calc(100vw-1rem))] -translate-x-1/2 overflow-y-auto rounded-3xl border border-white/15 bg-slate-950/90 p-2.5 text-white shadow-[0_24px_80px_rgba(15,23,42,0.55)] backdrop-blur-2xl sm:bottom-5 sm:max-h-none sm:w-[min(42rem,calc(100vw-1.5rem))] sm:overflow-visible sm:rounded-[2rem]" style="z-index: 2147483644;">
+        <div x-show="monitoringFloatOpen" x-cloak wire:ignore.self wire:key="wfh-monitoring-floating-dock" class="fixed bottom-5 left-1/2 w-[min(42rem,calc(100vw-1.5rem))] -translate-x-1/2 rounded-[2rem] border border-white/15 bg-slate-950/90 p-2.5 text-white shadow-[0_24px_80px_rgba(15,23,42,0.55)] backdrop-blur-2xl" style="z-index: 2147483644;">
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div class="flex items-center gap-3">
                     <div class="relative flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-lg shadow-blue-900/40"
@@ -905,8 +996,9 @@
                     <div>
                         <div class="flex flex-wrap items-center gap-2">
                             <p class="text-[11px] font-black uppercase tracking-[0.22em] text-blue-200">WFH monitor</p>
-                            <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-bold text-slate-200"
-                                x-text="isScreenShareLive() ? 'Screen sharing' : (screenShareSupported ? 'Tap display to share' : 'Mobile mode')"></span>
+                            <span class="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                                :class="liveScreenRequestPending && !isScreenShareLive() ? 'bg-amber-400 text-slate-950' : 'bg-white/10 text-slate-200'"
+                                x-text="liveScreenRequestPending && !isScreenShareLive() ? 'Live view opening' : (isScreenShareLive() ? 'Auto floating ready' : 'Needs share')"></span>
                         </div>
                         <div class="mt-1 flex flex-wrap items-end gap-3">
                             <div class="rounded-2xl bg-emerald-400/10 px-3 py-1.5 ring-1 ring-emerald-300/20">
@@ -919,56 +1011,29 @@
                             </div>
                             <span class="rounded-full px-2.5 py-1 text-[11px] font-black" :class="monitoringStatusClass()" x-text="monitoringStatusLabel()"></span>
                         </div>
-                        <p x-show="mobileDevice && !screenShareSupported" x-cloak class="mt-2 max-w-sm text-[11px] leading-4 text-sky-200">
-                            This browser blocks device-screen capture. GPS and activity monitoring remain active.
-                        </p>
                     </div>
                 </div>
-
-                <div x-show="liveMediaStream" x-cloak wire:ignore class="relative h-20 w-32 overflow-hidden rounded-2xl border border-white/10 bg-slate-900 shadow-inner">
-                    <video x-ref="liveMediaSelfPreview" autoplay playsinline muted class="h-full w-full scale-x-[-1] object-cover"></video>
-                    <div class="absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white backdrop-blur">
-                        You
-                    </div>
-                    <div x-show="!liveMediaCameraOn" class="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-950/85 text-white">
-                        <i class="bi bi-camera-video-off-fill text-lg"></i>
-                        <span class="text-[10px] font-bold uppercase tracking-wide">Camera off</span>
-                    </div>
-                </div>
-
-                <button type="button" x-show="!liveMediaStream" x-cloak @click="startLiveMediaPreview()" class="flex h-20 w-32 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white transition hover:bg-white/15">
-                    <i class="bi bi-camera-video text-xl"></i>
-                    <span class="mt-1 text-[10px] font-black uppercase tracking-wide">Open Cam/Mic</span>
-                </button>
 
                 <div class="flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" @click="screenShareSupported && (isScreenShareLive() ? stopScreenShare() : startScreenShare())" class="relative flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-blue-950/30 transition"
-                        :class="!screenShareSupported ? 'cursor-not-allowed bg-slate-700' : (isScreenShareLive() ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-500 hover:bg-amber-400')"
-                        :title="!screenShareSupported ? 'This mobile browser does not provide screen sharing' : (isScreenShareLive() ? 'Cancel screen sharing' : 'Start screen sharing')">
+                    <button type="button" @click="isScreenShareLive() ? stopScreenShare() : startScreenShare()" class="relative flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg shadow-blue-950/30 transition"
+                        :class="isScreenShareLive() ? 'bg-blue-600 hover:bg-blue-500' : 'bg-amber-500 hover:bg-amber-400'"
+                        :title="isScreenShareLive() ? 'Cancel screen sharing' : 'Start screen sharing'">
                         <i class="bi bi-display-fill"></i>
                         <span x-show="!isScreenShareLive()" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-white shadow"></span>
-                    </button>
-                    <button type="button" @click="toggleLiveMediaMic()"
-                        class="relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg shadow-slate-950/20 transition"
-                        :class="!liveMediaStream ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : (liveMediaMicOn ? 'bg-emerald-500 text-white hover:bg-emerald-400' : 'bg-rose-600 text-white hover:bg-rose-500')"
-                        :title="!liveMediaStream ? 'Open camera and microphone' : (liveMediaMicOn ? 'Mute microphone' : 'Unmute microphone')">
-                        <i class="text-lg" :class="!liveMediaStream ? 'bi bi-mic' : (liveMediaMicOn ? 'bi bi-mic-fill' : 'bi bi-mic-mute-fill')"></i>
-                        <span x-show="liveMediaStream && !liveMediaMicOn" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-white shadow"></span>
-                    </button>
-                    <button type="button" @click="toggleLiveMediaCamera()"
-                        class="relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg shadow-slate-950/20 transition"
-                        :class="!liveMediaStream ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : (liveMediaCameraOn ? 'bg-emerald-500 text-white hover:bg-emerald-400' : 'bg-rose-600 text-white hover:bg-rose-500')"
-                        :title="!liveMediaStream ? 'Open camera and microphone' : (liveMediaCameraOn ? 'Turn camera off' : 'Turn camera on')">
-                        <i class="text-lg" :class="!liveMediaStream ? 'bi bi-camera-video' : (liveMediaCameraOn ? 'bi bi-camera-video-fill' : 'bi bi-camera-video-off-fill')"></i>
-                        <span x-show="liveMediaStream && !liveMediaCameraOn" class="absolute h-0.5 w-8 rotate-45 rounded-full bg-white shadow"></span>
-                    </button>
-                    <button type="button" x-show="liveMediaStream" @click="stopLiveMedia()" class="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-950/30 transition hover:bg-red-500" title="Stop camera and microphone">
-                        <i class="bi bi-telephone-x-fill"></i>
                     </button>
                     <button type="button" @click="monitoringFloatOpen = false" class="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/15" title="Hide monitor">
                         <i class="bi bi-chevron-down"></i>
                     </button>
                 </div>
+            </div>
+            <div x-show="liveScreenRequestPending && !isScreenShareLive()" x-cloak class="mt-3 flex flex-col gap-2 rounded-2xl border border-amber-300/30 bg-amber-400/12 p-3 text-amber-50 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <p class="text-xs font-black uppercase tracking-[0.18em] text-amber-200">Admin live view opening</p>
+                    <p class="text-sm font-semibold text-white">Screen sharing must be active before the live feed can connect.</p>
+                </div>
+                <button type="button" @click="startScreenShare()" class="rounded-full bg-amber-400 px-4 py-2 text-sm font-black text-slate-950 transition hover:bg-amber-300">
+                    Share screen
+                </button>
             </div>
         </div>
 
@@ -1001,7 +1066,7 @@
         </div>
     </div>
 
-    <div x-show="screenSurfaceWarning && screenShareSupported" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483647;">
+    <div x-show="screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483647;">
         <div class="relative w-full max-w-lg rounded-2xl border border-rose-200 bg-white p-6 shadow-2xl dark:border-rose-500/30 dark:bg-slate-900" style="z-index: 2147483647;">
             <p class="text-xs font-bold uppercase tracking-[0.2em] text-rose-600 dark:text-rose-300">Screen Share Required</p>
             <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">Choose Entire Screen</h2>
@@ -1020,18 +1085,16 @@
         </div>
     </div>
 
-    <div x-show="screenShareSupported && screenResumeRequired && !isScreenShareLive() && !screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483646;">
+    <div x-show="screenResumeRequired && !isScreenShareLive() && !screenSurfaceWarning" x-cloak class="fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/80 p-4 pt-20 sm:items-center sm:pt-4" style="z-index: 2147483646;">
         <div class="relative w-full max-w-lg rounded-[28px] border border-blue-200 bg-white p-6 shadow-2xl dark:border-blue-500/30 dark:bg-slate-900" style="z-index: 2147483647;">
             <p class="text-xs font-bold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">Monitoring Still Active</p>
-            <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white">Screen Share Required</h2>
-            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                You are currently timed in for WFH and have not timed out yet. Please resume screen sharing so monitoring can continue after the page refresh.
-            </p>
+            <h2 class="mt-2 text-2xl font-bold text-slate-900 dark:text-white" x-text="liveScreenRequestPending ? 'Admin Live View Opening' : 'Screen Share Required'"></h2>
+            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300" x-text="liveScreenRequestPending ? 'The admin dashboard is opening your live screen. Please resume screen sharing so the feed can connect.' : 'You are currently timed in for WFH and have not timed out yet. Please resume screen sharing so monitoring can continue after the page refresh.'"></p>
             <div class="mt-4 rounded-lg bg-slate-100 p-3 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                 In the browser picker, choose <strong>Entire Screen</strong> or your full monitor. Window or tab sharing will be rejected.
             </div>
             <button type="button" @click="startScreenShare()" class="mt-5 w-full rounded-full bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700">
-                Start Screen Sharing
+                <span x-text="liveScreenRequestPending ? 'Share Screen and Connect' : 'Start Screen Sharing'"></span>
             </button>
         </div>
     </div>

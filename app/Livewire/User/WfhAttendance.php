@@ -434,7 +434,6 @@ class WfhAttendance extends Component
         $longitude = null,
         $accuracy = null,
         $screenShareActive = false,
-        $screenShareSupported = true,
         $isPwa = false,
         $platform = null,
         $userAgent = null,
@@ -520,8 +519,6 @@ class WfhAttendance extends Component
                 'last_latitude' => $latitude,
                 'last_longitude' => $longitude,
                 'screen_share_active' => (bool) $screenShareActive,
-                'screen_share_supported' => (bool) $screenShareSupported,
-                'monitoring_mode' => $screenShareSupported ? 'screen' : 'mobile',
                 'last_activity_metrics' => $activityMetrics,
             ]),
         ]);
@@ -604,6 +601,37 @@ class WfhAttendance extends Component
         $this->refreshMonitoringState();
     }
 
+    public function failLiveScreenAnswer($token, $message = null)
+    {
+        $session = $this->getOpenMonitoringSession();
+
+        if (! $session || ! $token) {
+            return;
+        }
+
+        $meta = $session->meta ?? [];
+        $liveScreen = $meta['live_screen'] ?? [];
+
+        if (($liveScreen['token'] ?? null) !== $token) {
+            return;
+        }
+
+        $message = is_string($message) && $message !== ''
+            ? str($message)->limit(240)->toString()
+            : 'Employee browser could not open live screen.';
+
+        $liveScreen['status'] = 'answer_failed';
+        $liveScreen['error'] = $message;
+        $liveScreen['failed_at'] = now()->toIso8601String();
+        $meta['live_screen'] = $liveScreen;
+
+        $session->update(['meta' => $meta]);
+        $this->logMonitoringEvent($session, 'live_screen_answer_failed', 'Employee browser could not open live screen', [
+            'message' => $message,
+        ]);
+        $this->refreshMonitoringState();
+    }
+
     public function recordScreenSnapshot($imageData, $captureType = 'periodic')
     {
         $session = $this->getOpenMonitoringSession();
@@ -647,20 +675,20 @@ class WfhAttendance extends Component
                 ->where('wfh_monitoring_session_id', $session->id)
                 ->where('capture_type', 'live_snapshot')
                 ->latest('captured_at')
-                ->skip(120)
-                ->take(50)
                 ->get();
 
-            foreach ($oldSnapshots as $oldSnapshot) {
+            foreach ($oldSnapshots->skip(1) as $oldSnapshot) {
                 Storage::disk('public')->delete($oldSnapshot->path);
                 $oldSnapshot->delete();
             }
         }
 
-        $this->logMonitoringEvent($session, 'screenshot_captured', 'Screen snapshot captured from active screen share', [
-            'path' => $path,
-            'capture_type' => $normalizedCaptureType,
-        ]);
+        if ($normalizedCaptureType !== 'live_snapshot') {
+            $this->logMonitoringEvent($session, 'screenshot_captured', 'Screen snapshot captured from active screen share', [
+                'path' => $path,
+                'capture_type' => $normalizedCaptureType,
+            ]);
+        }
     }
 
     public function getLiveSnapshotRequest()
@@ -685,7 +713,7 @@ class WfhAttendance extends Component
         $meta = $session?->meta ?? [];
         $liveScreen = $meta['live_screen'] ?? null;
 
-        if (! $session || ! $liveScreen || ! in_array($liveScreen['status'] ?? null, ['requested', 'offer_ready'], true)) {
+        if (! $session || ! $liveScreen || ! in_array($liveScreen['status'] ?? null, ['requested', 'offer_ready', 'awaiting_screen_share'], true)) {
             return null;
         }
 
@@ -695,6 +723,28 @@ class WfhAttendance extends Component
             'status' => $liveScreen['status'] ?? null,
             'offer' => $liveScreen['offer'] ?? null,
         ];
+    }
+
+    public function markLiveScreenNeedsShare($token)
+    {
+        $session = $this->getOpenMonitoringSession();
+
+        if (! $session || ! $token) {
+            return;
+        }
+
+        $meta = $session->meta ?? [];
+        $liveScreen = $meta['live_screen'] ?? [];
+
+        if (($liveScreen['token'] ?? null) !== $token || empty($liveScreen['offer'])) {
+            return;
+        }
+
+        $liveScreen['status'] = 'awaiting_screen_share';
+        $liveScreen['awaiting_screen_share_at'] = now()->toIso8601String();
+        $meta['live_screen'] = $liveScreen;
+
+        $session->update(['meta' => $meta]);
     }
 
     public function publishLiveAnswer($token, $answer)
@@ -761,6 +811,37 @@ class WfhAttendance extends Component
 
         $session->update(['meta' => $meta]);
         $this->logMonitoringEvent($session, 'live_media_answered', 'Employee approved camera and microphone live stream');
+    }
+
+    public function failLiveMediaAnswer($token, $message = null)
+    {
+        $session = $this->getOpenMonitoringSession();
+
+        if (! $session || ! $token) {
+            return;
+        }
+
+        $meta = $session->meta ?? [];
+        $liveMedia = $meta['live_media'] ?? [];
+
+        if (($liveMedia['token'] ?? null) !== $token) {
+            return;
+        }
+
+        $message = is_string($message) && $message !== ''
+            ? str($message)->limit(240)->toString()
+            : 'Employee browser could not open camera and microphone.';
+
+        $liveMedia['status'] = 'answer_failed';
+        $liveMedia['error'] = $message;
+        $liveMedia['failed_at'] = now()->toIso8601String();
+        $meta['live_media'] = $liveMedia;
+
+        $session->update(['meta' => $meta]);
+        $this->logMonitoringEvent($session, 'live_media_answer_failed', 'Employee browser could not open camera and microphone', [
+            'message' => $message,
+        ]);
+        $this->refreshMonitoringState();
     }
 
     public function respondToAfkPrompt($response)

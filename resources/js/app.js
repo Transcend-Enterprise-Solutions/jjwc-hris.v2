@@ -1,4 +1,6 @@
 import './bootstrap';
+import { createApp } from 'vue';
+import WfhMonitoringWall from './components/WfhMonitoringWall.vue';
 
 // Import Chart.js
 import { Chart } from 'chart.js';
@@ -16,6 +18,27 @@ import dashboardCard06 from './components/dashboard-card-06';
 import dashboardCard08 from './components/dashboard-card-08';
 import dashboardCard09 from './components/dashboard-card-09';
 import dashboardCard11 from './components/dashboard-card-11';
+
+const mountWfhMonitoringWall = () => {
+  const root = document.getElementById('wfh-monitoring-wall');
+
+  if (!root || root.__wfhMonitoringVue) {
+    return;
+  }
+
+  const app = createApp(WfhMonitoringWall, {
+    apiBase: root.dataset.apiBase,
+    initialDate: root.dataset.initialDate,
+    wallUrl: root.dataset.wallUrl,
+    iceServers: JSON.parse(root.dataset.iceServers || '[]'),
+  });
+
+  app.mount(root);
+  root.__wfhMonitoringVue = app;
+};
+
+document.addEventListener('DOMContentLoaded', mountWfhMonitoringWall);
+document.addEventListener('livewire:navigated', mountWfhMonitoringWall);
 
 window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints = []) => ({
   wire,
@@ -40,14 +63,22 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
   tab: 'sessions',
   gpsSelectedSessionId,
   gpsTrailPoints,
+  rtcIceServers: [],
   root: null,
   gpsMap: null,
   gpsMapLayer: null,
   gpsMapMarkers: [],
   initFromServer(root) {
     this.root = root;
+    this.rtcIceServers = JSON.parse(root?.dataset?.iceServers || '[]');
     this.refreshGpsTrailFromDom();
     this.init();
+  },
+  rtcPeerConfig() {
+    return {
+      iceServers: this.rtcIceServers?.length ? this.rtcIceServers : [{ urls: 'stun:stun.l.google.com:19302' }],
+      iceTransportPolicy: 'all',
+    };
   },
   refreshGpsTrailFromDom() {
     const root = this.root;
@@ -261,26 +292,24 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
     await this.$nextTick();
     this.liveSessionId = sessionId;
     this.liveEmployeeName = employeeName;
-    this.liveStatus = 'Requesting employee screen stream...';
+    this.liveStatus = 'Opening employee screen stream...';
 
     let request = null;
 
     try {
       request = await this.wire.requestLiveScreen(sessionId);
     } catch (error) {
-      this.liveStatus = error?.message || 'Unable to request live screen for this session.';
+      this.liveStatus = error?.message || 'Unable to open live screen for this session.';
       return;
     }
 
     if (!request?.token) {
-      this.liveStatus = 'Unable to request live screen for this session.';
+      this.liveStatus = 'Unable to open live screen for this session.';
       return;
     }
 
     this.liveToken = request.token;
-    const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+    const peer = new RTCPeerConnection(this.rtcPeerConfig());
 
     peer.addTransceiver('video', { direction: 'recvonly' });
     peer.ontrack = (event) => {
@@ -445,26 +474,24 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
     await this.$nextTick();
     this.mediaSessionId = sessionId;
     this.mediaEmployeeName = employeeName;
-    this.mediaStatus = 'Requesting camera and microphone permission...';
+    this.mediaStatus = 'Opening employee camera and microphone...';
 
     let request = null;
 
     try {
       request = await this.wire.requestLiveMedia(sessionId);
     } catch (error) {
-      this.mediaStatus = error?.message || 'Unable to request camera and microphone for this session.';
+      this.mediaStatus = error?.message || 'Unable to open camera and microphone for this session.';
       return;
     }
 
     if (!request?.token) {
-      this.mediaStatus = 'Unable to request camera and microphone for this session.';
+      this.mediaStatus = 'Unable to open camera and microphone for this session.';
       return;
     }
 
     this.mediaToken = request.token;
-    const peer = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-    });
+    const peer = new RTCPeerConnection(this.rtcPeerConfig());
 
     peer.addTransceiver('video', { direction: 'recvonly' });
     peer.addTransceiver('audio', { direction: 'recvonly' });
@@ -495,7 +522,7 @@ window.wfhMonitoringAdmin = (wire, gpsSelectedSessionId = null, gpsTrailPoints =
     await this.waitForIceGathering(peer);
     await this.wire.publishLiveMediaOffer(sessionId, this.mediaToken, peer.localDescription.toJSON());
     this.mediaPeer = peer;
-    this.mediaStatus = 'Waiting for employee approval...';
+    this.mediaStatus = 'Opening employee camera and microphone...';
     this.pollLiveMediaAnswer();
   },
   async pollLiveMediaAnswer() {

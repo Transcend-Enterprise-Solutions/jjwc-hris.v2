@@ -23,88 +23,7 @@ class WfhMonitoring extends Component
 
     public function render()
     {
-        $monitoringSessions = WfhMonitoringSessionRecord::query()
-            ->with('user.userData')
-            ->whereDate('started_at', Carbon::today())
-            ->when($this->search, function ($query) {
-                $search = trim($this->search);
-
-                $query->whereHas('user', function ($userQuery) use ($search) {
-                    $userQuery->where('name', 'like', "%{$search}%")
-                        ->orWhere('emp_code', 'like', "%{$search}%")
-                        ->orWhereHas('userData', function ($userDataQuery) use ($search) {
-                            $userDataQuery->where('surname', 'like', "%{$search}%")
-                                ->orWhere('first_name', 'like', "%{$search}%");
-                        });
-                });
-            })
-            ->latest('last_activity_at')
-            ->latest('started_at')
-            ->get();
-
-        $selectedMonitoringSession = $this->selectedMonitoringSessionId
-            ? WfhMonitoringSessionRecord::with('user.userData')->find($this->selectedMonitoringSessionId)
-            : $monitoringSessions->first();
-
-        if ($selectedMonitoringSession) {
-            $selectedMonitoringSession->load([
-                'locationPings' => fn ($query) => $query->latest('occurred_at')->limit(6),
-                'screenshots' => fn ($query) => $query->latest('captured_at')->limit(8),
-                'events' => fn ($query) => $query->latest('occurred_at')->limit(12),
-            ]);
-        }
-
-        $gpsSelectedSession = $this->gpsSelectedSessionId
-            ? WfhMonitoringSessionRecord::with('user.userData')->find($this->gpsSelectedSessionId)
-            : $selectedMonitoringSession;
-
-        $gpsLocationTrail = [];
-        $gpsCurrentLocationLabel = null;
-        if ($gpsSelectedSession) {
-            $gpsSelectedSession->load([
-                'locationPings' => fn ($query) => $query->latest('occurred_at')->limit(40),
-            ]);
-
-            $gpsCurrentLocationLabel = $this->displayLocationLabel(
-                $gpsSelectedSession->last_latitude,
-                $gpsSelectedSession->last_longitude,
-                $gpsSelectedSession->field_location_label,
-            );
-
-            $gpsLocationTrail = $gpsSelectedSession->locationPings
-                ->sortBy('occurred_at')
-                ->values()
-                ->map(function ($ping) use ($gpsSelectedSession) {
-                    $resolvedLocation = $this->displayLocationLabel(
-                        $ping->latitude,
-                        $ping->longitude,
-                        $ping->location_label ?: $gpsSelectedSession->field_location_label,
-                    );
-
-                    return [
-                        'lat' => (float) $ping->latitude,
-                        'lng' => (float) $ping->longitude,
-                        'time' => optional($ping->occurred_at)->format('M d, h:i A'),
-                        'label' => $resolvedLocation,
-                        'status' => $this->geofenceStatusLabel($ping->geofence_status),
-                        'accuracy' => $ping->accuracy ? number_format((float) $ping->accuracy, 1) . 'm' : null,
-                        'distance' => $ping->distance_from_geofence ? number_format((float) $ping->distance_from_geofence, 1) . 'm' : null,
-                    ];
-                })
-                ->filter(fn ($point) => is_numeric($point['lat']) && is_numeric($point['lng']))
-                ->values()
-                ->all();
-        }
-
-        return view('livewire.admin.wfh-monitoring', [
-            'monitoringSessions' => $monitoringSessions,
-            'monitoringStats' => $this->buildMonitoringStats($monitoringSessions),
-            'selectedMonitoringSession' => $selectedMonitoringSession,
-            'gpsSelectedSession' => $gpsSelectedSession,
-            'gpsLocationTrail' => $gpsLocationTrail,
-            'gpsCurrentLocationLabel' => $gpsCurrentLocationLabel,
-            'urlRules' => WfhMonitoringUrlRule::query()->latest()->limit(12)->get(),
-        ]);
+        return view('livewire.admin.wfh-monitoring');
     }
 
     public function selectMonitoringSession($id, $module = null)
@@ -131,10 +50,6 @@ class WfhMonitoring extends Component
             return 'AFK';
         }
 
-        if ($this->isMobileSession($session) && ! $session->screen_share_active) {
-            return 'Mobile';
-        }
-
         if (! $session->screen_share_active) {
             return 'Screen Off';
         }
@@ -149,28 +64,9 @@ class WfhMonitoring extends Component
             'AFK' => 'bg-amber-100 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
             'On Break' => 'bg-sky-100 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
             'Offline' => 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300',
-            'Mobile' => 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
             'Screen Off' => 'bg-orange-100 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
             default => 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-200',
         };
-    }
-
-    protected function isMobileSession($session): bool
-    {
-        $meta = is_array($session?->meta) ? $session->meta : [];
-
-        if (array_key_exists('screen_share_supported', $meta)) {
-            return ! (bool) $meta['screen_share_supported'];
-        }
-
-        if (($meta['monitoring_mode'] ?? null) === 'mobile') {
-            return true;
-        }
-
-        return (bool) preg_match(
-            '/Android|iPhone|iPad|iPod|Mobile/i',
-            (string) ($session?->user_agent ?: $session?->device_platform)
-        );
     }
 
     public function requestLiveScreen($sessionId)
@@ -193,7 +89,7 @@ class WfhMonitoring extends Component
         ];
 
         $session->update(['meta' => $meta]);
-        $this->logAdminEvent($session, 'live_screen_requested', 'Supervisor requested live screen view');
+        $this->logAdminEvent($session, 'live_screen_requested', 'Supervisor opened live screen view');
 
         return ['token' => $token];
     }
@@ -268,7 +164,7 @@ class WfhMonitoring extends Component
         ];
 
         $session->update(['meta' => $meta]);
-        $this->logAdminEvent($session, 'live_media_requested', 'Supervisor requested employee camera and microphone');
+        $this->logAdminEvent($session, 'live_media_requested', 'Supervisor opened employee camera and microphone');
 
         return ['token' => $token];
     }
@@ -509,7 +405,7 @@ class WfhMonitoring extends Component
     {
         return [
             'total' => $sessions->count(),
-            'active' => $sessions->filter(fn ($session) => in_array($this->monitoringStateFor($session), ['Active', 'Mobile'], true))->count(),
+            'active' => $sessions->filter(fn ($session) => $this->monitoringStateFor($session) === 'Active')->count(),
             'offline' => $sessions->filter(fn ($session) => $this->monitoringStateFor($session) === 'Offline')->count(),
             'afk' => $sessions->filter(fn ($session) => $this->monitoringStateFor($session) === 'AFK')->count(),
             'on_break' => $sessions->filter(fn ($session) => $this->monitoringStateFor($session) === 'On Break')->count(),

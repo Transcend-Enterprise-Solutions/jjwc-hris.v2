@@ -143,7 +143,22 @@
               <div><dt>Active</dt><dd>{{ duration(selectedSession?.activeSeconds) }}</dd></div>
               <div><dt>Idle</dt><dd>{{ duration(selectedSession?.idleSeconds) }}</dd></div>
               <div><dt>Last activity</dt><dd>{{ relativeTime(selectedSession?.lastActivityAt) }}</dd></div>
+              <div><dt>Browser</dt><dd>{{ selectedSession?.browserName || '-' }}</dd></div>
+              <div><dt>Device</dt><dd>{{ selectedSession?.devicePlatform || '-' }}</dd></div>
+              <div><dt>Tab</dt><dd>{{ visibilityLabel(selectedSession?.visibilityState) }}</dd></div>
+              <div><dt>Activity score</dt><dd>{{ selectedSession?.activityScore ?? 0 }}%</dd></div>
             </dl>
+            <div class="wfh-wall__context">
+              <span>Current HRIS page</span>
+              <strong>{{ selectedSession?.currentPageTitle || 'Waiting for page details' }}</strong>
+              <small>{{ compactUrl(selectedSession?.currentPageUrl) }}</small>
+            </div>
+            <div class="wfh-wall__interaction-grid">
+              <span><strong>{{ selectedSession?.interactions?.keystrokes || 0 }}</strong>Keys</span>
+              <span><strong>{{ selectedSession?.interactions?.mouseMoves || 0 }}</strong>Mouse</span>
+              <span><strong>{{ selectedSession?.interactions?.clicks || 0 }}</strong>Clicks</span>
+              <span><strong>{{ selectedSession?.interactions?.touches || 0 }}</strong>Touches</span>
+            </div>
           </article>
 
           <article class="wfh-wall__detail-card">
@@ -206,13 +221,21 @@
           </div>
           <ol class="wfh-wall__events">
             <li v-for="event in filteredEvents" :key="event.id">
-              <span></span>
+              <span :class="`is-${activityTone(event.type)}`"></span>
               <div>
                 <strong>{{ event.label || event.type }}</strong>
-                <small>{{ formatTime(event.occurredAt) }}</small>
+                <small>
+                  {{ activityTypeLabel(event.type) }}
+                  <template v-if="event.occurredAt"> · {{ formatTime(event.occurredAt) }}</template>
+                </small>
+                <small v-if="activityDetail(event)" class="wfh-wall__event-detail">
+                  {{ activityDetail(event) }}
+                </small>
               </div>
             </li>
-            <li v-if="!filteredEvents.length" class="empty">No matching activity.</li>
+            <li v-if="!filteredEvents.length" class="empty">
+              No employee activity has been recorded for this filter yet.
+            </li>
           </ol>
         </section>
       </main>
@@ -693,7 +716,14 @@ const filteredEvents = computed(() => {
     'before_unload',
     'screen_share_started',
     'screen_share_stopped',
+    'screen_share_denied',
+    'screen_share_unavailable',
+    'screen_share_wrong_surface',
+    'monitoring_popout_blocked',
     'field_work_proof',
+    'field_work_started',
+    'break_started',
+    'break_ended',
   ]);
   const employeeEvents = selectedEvents.value.filter((event) => employeeBehaviorTypes.has(event.type));
 
@@ -710,6 +740,58 @@ const filteredEvents = computed(() => {
     return true;
   });
 });
+
+const activityTypeLabel = (type = '') => {
+  if (['browser_started', 'page_view'].includes(type)) return 'Browser activity';
+  if (['tab_focused', 'tab_backgrounded'].includes(type)) return 'Tab focus';
+  if (['employee_active', 'employee_idle', 'session_resumed'].includes(type)) return 'Activity state';
+  if (['session_started', 'session_ended', 'status_changed', 'break_started', 'break_ended', 'field_work_started'].includes(type)) return 'Work status';
+  if (type.startsWith('screen_share') || type === 'screenshot_captured') return 'Screen monitoring';
+  if (type.includes('offline') || type.includes('afk') || type.includes('denied') || type.includes('blocked')) return 'Attention required';
+  if (type === 'field_work_proof') return 'Field work';
+  return 'Employee activity';
+};
+
+const activityTone = (type = '') => {
+  if (type.includes('offline') || type.includes('denied') || type.includes('blocked') || type === 'screen_share_stopped') return 'alert';
+  if (type.includes('idle') || type.includes('afk') || type.includes('backgrounded')) return 'warning';
+  if (type.includes('started') || type.includes('active') || type.includes('focused') || type.includes('resumed')) return 'success';
+  return 'info';
+};
+
+const activityDetail = (event = {}) => {
+  const payload = event.payload || {};
+
+  if (event.type === 'page_view') return compactUrl(payload.url) || payload.title || '';
+  if (event.type === 'browser_started') {
+    return [payload.browser, payload.platform].filter(Boolean).join(' on ');
+  }
+  if (['employee_active', 'employee_idle'].includes(event.type)) {
+    const active = Number(payload.active_seconds || 0);
+    const idle = Number(payload.idle_seconds || 0);
+    return `Active ${active}s · Idle ${idle}s`;
+  }
+  if (event.type.startsWith('screen_share')) return payload.display_surface ? `Surface: ${payload.display_surface}` : '';
+
+  return '';
+};
+
+const compactUrl = (value = '') => {
+  if (!value) return '';
+
+  try {
+    const url = new URL(value, window.location.origin);
+    return `${url.hostname}${url.pathname === '/' ? '' : url.pathname}`;
+  } catch {
+    return String(value).slice(0, 100);
+  }
+};
+
+const visibilityLabel = (value = '') => {
+  if (value === 'visible') return 'Focused';
+  if (value === 'hidden') return 'Background';
+  return value || '-';
+};
 
 const canOpenLiveForSession = (session = selectedSession.value) => {
   const state = String(session?.state || '').toLowerCase();
@@ -2621,6 +2703,58 @@ onBeforeUnmount(() => {
   color: var(--wall-text);
   font-size: 13px;
   font-weight: 800;
+  text-align: right;
+}
+
+.wfh-wall__context {
+  display: grid;
+  gap: 3px;
+  margin-top: 14px;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--wall-panel-strong);
+}
+
+.wfh-wall__context span,
+.wfh-wall__context small {
+  color: var(--wall-muted);
+  font-size: 11px;
+}
+
+.wfh-wall__context strong {
+  overflow-wrap: anywhere;
+  color: var(--wall-text);
+  font-size: 12px;
+}
+
+.wfh-wall__context small {
+  overflow-wrap: anywhere;
+}
+
+.wfh-wall__interaction-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.wfh-wall__interaction-grid span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 7px 4px;
+  background: var(--wall-panel-strong);
+  color: var(--wall-muted);
+  font-size: 9px;
+  text-align: center;
+}
+
+.wfh-wall__interaction-grid strong {
+  color: var(--wall-text);
+  font-size: 12px;
 }
 
 .wfh-wall__steps {
@@ -3227,10 +3361,30 @@ onBeforeUnmount(() => {
   background: #0284c7;
 }
 
+.wfh-wall__events li > span.is-success {
+  background: #10b981;
+}
+
+.wfh-wall__events li > span.is-warning {
+  background: #f59e0b;
+}
+
+.wfh-wall__events li > span.is-alert {
+  background: #f43f5e;
+}
+
 .wfh-wall__events strong {
   display: block;
   color: var(--wall-text);
   font-size: 13px;
+}
+
+.wfh-wall__events .wfh-wall__event-detail {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: var(--wall-muted);
+  font-size: 11px;
 }
 
 .wfh-wall__events .empty {

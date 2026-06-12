@@ -499,9 +499,14 @@ class WfhAttendance extends Component
         $browserName = WfhActivity::browserName($userAgent ?: $session->user_agent);
         $currentBrowserUrl = $browserUrl ?: $session->browser_url;
         $currentBrowserTitle = $browserTitle ?: $session->browser_tab_title;
+        $currentPageKey = WfhActivity::pageKey($currentBrowserUrl);
+        $previousPageKey = $meta['last_page_key'] ?? null;
 
         $meta['activity_state'] = $activityState;
         $meta['browser_identified_at'] = $meta['browser_identified_at'] ?? $now->toIso8601String();
+        if ($currentBrowserUrl) {
+            $meta['last_page_key'] = $currentPageKey;
+        }
 
         $session->update([
             'status' => $isVisible && $wasAfk ? 'active' : $session->status,
@@ -553,7 +558,7 @@ class WfhAttendance extends Component
 
         if (
             $currentBrowserUrl
-            && WfhActivity::pageKey($previousBrowserUrl) !== WfhActivity::pageKey($currentBrowserUrl)
+            && $previousPageKey !== $currentPageKey
         ) {
             $this->logMonitoringEvent($session, 'page_view', WfhActivity::pageLabel($currentBrowserTitle, $currentBrowserUrl), [
                 'title' => $currentBrowserTitle,

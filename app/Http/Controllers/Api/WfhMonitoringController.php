@@ -8,6 +8,7 @@ use App\Models\WfhMonitoringEvent;
 use App\Models\WfhMonitoringScreenshot;
 use App\Models\WfhMonitoringSessionRecord;
 use App\Models\WfhMonitoringUrlRule;
+use App\Support\WfhActivity;
 use App\Support\WfhMonitoringClock;
 use App\Support\WfhMonitoringReport;
 use Carbon\Carbon;
@@ -52,16 +53,35 @@ class WfhMonitoringController extends Controller
     {
         $session->load([
             'user.userData',
-            'events' => fn ($query) => $query->latest('occurred_at')->limit(30),
             'locationPings' => fn ($query) => $query->latest('occurred_at')->limit(40),
             'screenshots' => fn ($query) => $query->latest('captured_at')->limit(12),
             'latestScreenshot',
             'latestLocationPing',
         ]);
+        $activityDate = Carbon::parse($session->started_at ?: $session->created_at);
+        $events = WfhMonitoringEvent::query()
+            ->where('user_id', $session->user_id)
+            ->whereBetween('occurred_at', [
+                $activityDate->copy()->startOfDay(),
+                $activityDate->copy()->endOfDay(),
+            ])
+            ->whereNotIn('event_type', [
+                'live_screen_requested',
+                'live_screen_stopped',
+                'live_media_requested',
+                'live_media_stopped',
+                'live_snapshots_started',
+                'live_snapshots_stopped',
+                'snapshot_requested',
+                'screenshot_captured',
+            ])
+            ->latest('occurred_at')
+            ->limit(80)
+            ->get();
 
         return response()->json([
             'session' => $this->sessionPayload($session, true),
-            'events' => $session->events->map(fn ($event) => $this->eventPayload($event))->values(),
+            'events' => $events->map(fn ($event) => $this->eventPayload($event))->values(),
             'locations' => $this->locationTrail($session),
             'screenshots' => $session->screenshots->map(fn ($screenshot) => $this->screenshotPayload($screenshot))->values(),
         ]);
@@ -398,6 +418,20 @@ class WfhMonitoringController extends Controller
             'activeSeconds' => $activeSeconds,
             'idleSeconds' => $idleSeconds,
             'activityCount' => (int) ($session->activity_count ?? 0),
+            'activityScore' => (int) ($session->activity_score ?? 0),
+            'browserName' => WfhActivity::browserName($session->user_agent),
+            'currentPageTitle' => $session->browser_tab_title,
+            'currentPageUrl' => $session->browser_url,
+            'visibilityState' => $session->visibility_state,
+            'devicePlatform' => $session->device_platform,
+            'isPwa' => (bool) $session->is_pwa,
+            'urlClassification' => $session->url_classification,
+            'interactions' => [
+                'keystrokes' => (int) ($session->keystroke_count ?? 0),
+                'mouseMoves' => (int) ($session->mouse_activity_count ?? 0),
+                'clicks' => (int) ($session->click_count ?? 0),
+                'touches' => (int) ($session->touch_count ?? 0),
+            ],
             'lastLocation' => $this->locationPayload($session),
             'latestScreenshot' => $session->relationLoaded('latestScreenshot') && $session->latestScreenshot
                 ? $this->screenshotPayload($session->latestScreenshot)

@@ -1,5 +1,5 @@
 <template>
-  <section ref="wallRoot" class="wfh-wall w-full">
+  <section ref="wallRoot" :class="['wfh-wall', 'w-full', { 'is-standalone': props.standalone }]">
     <div class="wfh-wall__shell">
       <header class="wfh-wall__header">
         <div>
@@ -17,7 +17,7 @@
             <i class="bi bi-arrow-clockwise"></i>
             Refresh
           </button>
-          <a v-if="wallUrl" class="wfh-wall__button wfh-wall__button--muted" :href="wallUrl" target="_blank" rel="noopener">
+          <a v-if="wallUrl && !props.standalone" class="wfh-wall__button wfh-wall__button--muted" :href="wallUrl" target="_blank" rel="noopener">
             <i class="bi bi-box-arrow-up-right"></i>
             Open wall
           </a>
@@ -413,6 +413,56 @@
             <span>Latest daily GPS coordinates, accuracy, browser, and employee device.</span>
           </article>
         </section>
+
+        <section class="wfh-wall__report-preview">
+          <div class="wfh-wall__card-head">
+            <div>
+              <h3>Report Preview</h3>
+              <p>{{ reportPreviewTotal }} employee-day record{{ reportPreviewTotal === 1 ? '' : 's' }} found</p>
+            </div>
+            <span v-if="reportPreviewLoading">Updating...</span>
+            <span v-else-if="reportPreviewTotal > reportPreviewRows.length">Showing first {{ reportPreviewRows.length }}</span>
+          </div>
+
+          <div class="wfh-wall__report-table-wrap">
+            <table class="wfh-wall__report-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Employee</th>
+                  <th>Time In</th>
+                  <th>Last Activity</th>
+                  <th>Online</th>
+                  <th>Active</th>
+                  <th>Idle</th>
+                  <th>Activity</th>
+                  <th>Status</th>
+                  <th>GPS</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in reportPreviewRows" :key="`${row.date}-${row.employeeId}`">
+                  <td>{{ row.date }}</td>
+                  <td>
+                    <strong>{{ row.employeeName }}</strong>
+                    <small>{{ row.employeeId }} · {{ row.sessions }} session{{ row.sessions === 1 ? '' : 's' }}</small>
+                  </td>
+                  <td>{{ row.firstTimeIn }}</td>
+                  <td>{{ row.lastActivity }}</td>
+                  <td>{{ row.online }}</td>
+                  <td>{{ row.active }}</td>
+                  <td>{{ row.idle }}</td>
+                  <td>{{ row.activityRate }}%</td>
+                  <td>{{ row.workStatus }}</td>
+                  <td>{{ reportGpsLabel(row) }}</td>
+                </tr>
+                <tr v-if="!reportPreviewLoading && !reportPreviewRows.length">
+                  <td colspan="10" class="empty">No WFH records match the selected filters.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
       </main>
     </div>
   </section>
@@ -433,6 +483,10 @@ const props = defineProps({
   wallUrl: {
     type: String,
     default: '',
+  },
+  standalone: {
+    type: Boolean,
+    default: false,
   },
   iceServers: {
     type: Array,
@@ -492,6 +546,10 @@ const coordinatesCopied = ref(false);
 const reportStartDate = ref(new Date().toISOString().slice(0, 10));
 const reportEndDate = ref(new Date().toISOString().slice(0, 10));
 const reportEmployee = ref('');
+const reportPreviewRows = ref([]);
+const reportPreviewTotal = ref(0);
+const reportPreviewLoading = ref(false);
+const reportPreviewTimer = ref(null);
 let locationMap = null;
 let locationBounds = null;
 let locationMarkers = new Map();
@@ -1575,6 +1633,40 @@ const setReportRange = (range) => {
   reportEndDate.value = dateValue(end);
 };
 
+const loadReportPreview = async () => {
+  if (!reportStartDate.value || !reportEndDate.value) return;
+
+  reportPreviewLoading.value = true;
+
+  try {
+    const payload = await apiFetch('/report-preview', {
+      params: {
+        start_date: reportStartDate.value,
+        end_date: reportEndDate.value,
+        employee: reportEmployee.value,
+      },
+    });
+    reportPreviewRows.value = payload.rows || [];
+    reportPreviewTotal.value = Number(payload.total || 0);
+  } catch (error) {
+    reportPreviewRows.value = [];
+    reportPreviewTotal.value = 0;
+    errorMessage.value = error.message || 'Unable to preview the WFH report.';
+  } finally {
+    reportPreviewLoading.value = false;
+  }
+};
+
+const queueReportPreview = () => {
+  window.clearTimeout(reportPreviewTimer.value);
+  reportPreviewTimer.value = window.setTimeout(loadReportPreview, 350);
+};
+
+const reportGpsLabel = (row) => {
+  if (row.latitude === '-' || row.longitude === '-') return 'Not reported';
+  return `${row.latitude}, ${row.longitude}`;
+};
+
 const coordinateLabel = (value) => {
   const number = Number(value);
 
@@ -1662,6 +1754,14 @@ watch(search, () => {
   searchTimer.value = window.setTimeout(() => loadSessions(), 350);
 });
 
+watch([reportStartDate, reportEndDate, reportEmployee], queueReportPreview);
+
+watch(activeView, (view) => {
+  if (view === 'reports' && !reportPreviewRows.value.length) {
+    loadReportPreview();
+  }
+});
+
 watch([sessions, selectedSessionId, activeView], () => {
   nextTick(() => renderLocationMap());
 }, { deep: true });
@@ -1679,6 +1779,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreenState);
   window.clearInterval(refreshTimer.value);
   window.clearTimeout(searchTimer.value);
+  window.clearTimeout(reportPreviewTimer.value);
   stopSnapshotMonitor({ report: true });
   if (locationMap) {
     locationMarkers.forEach((marker) => marker.setMap(null));
@@ -1728,6 +1829,19 @@ onBeforeUnmount(() => {
   background: var(--wall-shell);
   box-shadow: var(--wall-shadow);
   overflow: hidden;
+}
+
+.wfh-wall.is-standalone {
+  min-height: 100dvh;
+  background: var(--wall-bg);
+}
+
+.wfh-wall.is-standalone .wfh-wall__shell {
+  width: 100%;
+  min-height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .wfh-wall__header,
@@ -3189,6 +3303,84 @@ onBeforeUnmount(() => {
 
 .wfh-wall__report-columns span {
   line-height: 1.5;
+}
+
+.wfh-wall__report-preview {
+  min-width: 0;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--wall-panel);
+}
+
+.wfh-wall__report-preview h3 {
+  color: var(--wall-text);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.wfh-wall__report-table-wrap {
+  overflow: auto;
+  max-height: 440px;
+  margin-top: 12px;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+}
+
+.wfh-wall__report-table {
+  width: 100%;
+  min-width: 1180px;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--wall-text);
+  font-size: 12px;
+}
+
+.wfh-wall__report-table th,
+.wfh-wall__report-table td {
+  border-bottom: 1px solid var(--wall-border);
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.wfh-wall__report-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--wall-panel-strong);
+  color: var(--wall-muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.wfh-wall__report-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.wfh-wall__report-table tbody tr:hover td {
+  background: color-mix(in srgb, #2563eb 5%, var(--wall-panel));
+}
+
+.wfh-wall__report-table td strong,
+.wfh-wall__report-table td small {
+  display: block;
+}
+
+.wfh-wall__report-table td strong {
+  font-size: 13px;
+}
+
+.wfh-wall__report-table td small {
+  margin-top: 3px;
+  color: var(--wall-muted);
+}
+
+.wfh-wall__report-table td.empty {
+  padding: 28px;
+  color: var(--wall-muted);
+  text-align: center;
 }
 
 .wfh-wall:fullscreen {

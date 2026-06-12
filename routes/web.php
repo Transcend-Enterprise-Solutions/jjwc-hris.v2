@@ -18,9 +18,9 @@ use App\Livewire\User\LeaveCredits;
 use App\Livewire\User\LeaveMonetization;
 use App\Livewire\User\MyDocuments;
 use App\Livewire\User\MySchedule;
-use App\Livewire\User\WfhMonitoringSession;
 use App\Livewire\User\OfficialBusiness;
 use App\Livewire\User\PersonalDataSheet;
+use App\Livewire\User\WfhMonitoringSession;
 use App\Livewire\User\WfhSched as UserWfhSched;
 use App\Livewire\User\WorkExperienceSheet;
 use App\Models\CaseTracking;
@@ -57,7 +57,6 @@ Route::get('/contact-us', function () {
     return view('contact-us');
 })->name('contact-us');
 
-
 Route::middleware(['auth', 'checkrole:sa,hr,sv,pa'])->get('/dashboard', [DashboardController::class, 'index'])->name('/dashboard');
 Route::middleware(['auth', 'checkrole:sa,hr,sv,pa'])->get('/json-data-feed', [DataFeedController::class, 'getDataFeed'])->name('json_data_feed');
 Route::view('/wfh-monitoring/wall', 'admin.wfh-monitoring-wall')
@@ -69,6 +68,7 @@ Route::middleware(['auth', 'checkrole:sa,hr,sv,pa'])
     ->group(function () {
         Route::get('/sessions', [WfhMonitoringController::class, 'index'])->name('sessions.index');
         Route::get('/report', [WfhMonitoringController::class, 'report'])->name('report');
+        Route::get('/report-preview', [WfhMonitoringController::class, 'reportPreview'])->name('report-preview');
         Route::get('/sessions/{session}', [WfhMonitoringController::class, 'show'])->name('sessions.show');
         Route::get('/sessions/{session}/gps', [WfhMonitoringController::class, 'gps'])->name('sessions.gps');
         Route::get('/rules', [WfhMonitoringController::class, 'rules'])->name('rules.index');

@@ -99,6 +99,41 @@ class WfhMonitoringController extends Controller
         return Excel::download(new WfhMonitoringReportExport($rows, $startDate, $endDate, $employee), $filename);
     }
 
+    public function reportPreview(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'start_date' => ['required', 'date'],
+            'end_date' => ['required', 'date', 'after_or_equal:start_date'],
+            'employee' => ['nullable', 'string', 'max:100'],
+        ]);
+        $startDate = Carbon::parse($validated['start_date'])->startOfDay();
+        $endDate = Carbon::parse($validated['end_date'])->endOfDay();
+
+        abort_if($startDate->diffInDays($endDate) > 366, 422, 'The report range cannot exceed 366 days.');
+
+        $employee = trim((string) ($validated['employee'] ?? '')) ?: null;
+        $rows = WfhMonitoringReport::rows($startDate, $endDate, $employee);
+
+        return response()->json([
+            'total' => $rows->count(),
+            'rows' => $rows->take(100)->map(fn ($row) => [
+                'date' => $row[0],
+                'employeeId' => $row[2],
+                'employeeName' => $row[3],
+                'sessions' => $row[4],
+                'firstTimeIn' => $row[5],
+                'lastActivity' => $row[6],
+                'online' => $row[7],
+                'active' => $row[8],
+                'idle' => $row[9],
+                'activityRate' => $row[10],
+                'workStatus' => $row[11],
+                'latitude' => $row[13],
+                'longitude' => $row[14],
+            ])->values(),
+        ]);
+    }
+
     public function rules(): JsonResponse
     {
         return response()->json([

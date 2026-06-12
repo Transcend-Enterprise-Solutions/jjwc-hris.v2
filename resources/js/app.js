@@ -30,6 +30,7 @@ const mountWfhMonitoringWall = () => {
     apiBase: root.dataset.apiBase,
     initialDate: root.dataset.initialDate,
     wallUrl: root.dataset.wallUrl,
+    standalone: root.dataset.standalone === 'true',
     iceServers: JSON.parse(root.dataset.iceServers || '[]'),
   });
 

@@ -113,9 +113,11 @@
                         @foreach($childModules as $childModule)
                             @if($childModule->route)
                                 <li class="mb-1 last:mb-0">
+                                    @php($isWfhMonitoring = $childModule->module_key === 'wfh_monitoring')
                                     <a class="block text-slate-400 hover:text-blue-500 transition-colors duration-150 truncate
                                         @if ($this->isRouteActive($childModule->route)) {{ '!text-blue-500' }} @endif"
-                                        href="{{ route($childModule->route) }}">
+                                        href="{{ $isWfhMonitoring ? route('wfh-monitoring.wall') : route($childModule->route) }}"
+                                        @if($isWfhMonitoring) target="_blank" rel="noopener" @endif>
                                         <span class="text-sm font-medium lg:opacity-0 lg:sidebar-expanded:opacity-100 2xl:opacity-100 duration-200">
                                             {{ $childModule->module_name }}
                                         </span>

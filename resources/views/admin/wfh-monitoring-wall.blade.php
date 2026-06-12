@@ -12,19 +12,31 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <title>JJWC HRIS - WFH Monitor Wall</title>
     <script>
-        if (localStorage.getItem('dark-mode') === 'true') {
-            document.documentElement.classList.add('dark');
-        }
+        const applyStoredTheme = () => {
+            const dark = localStorage.getItem('dark-mode') === 'true';
+            document.documentElement.classList.toggle('dark', dark);
+            document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+        };
+
+        applyStoredTheme();
+        window.addEventListener('storage', (event) => {
+            if (event.key === 'dark-mode') applyStoredTheme();
+        });
+        window.addEventListener('focus', applyStoredTheme);
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) applyStoredTheme();
+        });
     </script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="font-inter bg-slate-100 text-slate-800 dark:bg-slate-950 dark:text-slate-200">
-    <main class="min-h-screen p-3 sm:p-5">
+    <main class="min-h-screen">
         <div
             id="wfh-monitoring-wall"
             data-api-base="{{ url('/wfh-monitoring/api') }}"
             data-initial-date="{{ now()->toDateString() }}"
-            data-wall-url="{{ route('wfh-monitoring.wall') }}"
+            data-wall-url=""
+            data-standalone="true"
             data-ice-servers='@json(config('wfh_monitoring.ice_servers'))'
         ></div>
     </main>

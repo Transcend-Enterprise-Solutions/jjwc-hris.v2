@@ -76,8 +76,15 @@ class WfhMonitoringController extends Controller
                 'screenshot_captured',
             ])
             ->latest('occurred_at')
-            ->limit(80)
-            ->get();
+            ->limit(160)
+            ->get()
+            ->unique(fn ($event) => implode('|', [
+                $event->event_type,
+                $event->label,
+                optional($event->occurred_at)->format('Y-m-d H:i'),
+            ]))
+            ->take(80)
+            ->values();
 
         return response()->json([
             'session' => $this->sessionPayload($session, true),

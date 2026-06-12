@@ -219,19 +219,52 @@
               <option value="alerts">Alerts</option>
             </select>
           </div>
+          <div class="wfh-wall__activity-overview">
+            <article class="is-page">
+              <i class="bi bi-window-stack"></i>
+              <div>
+                <span>Current HRIS page</span>
+                <strong>{{ selectedSession?.currentPageTitle || 'Waiting for page details' }}</strong>
+                <small>{{ compactUrl(selectedSession?.currentPageUrl) || 'No page reported yet' }}</small>
+              </div>
+            </article>
+            <article>
+              <i class="bi bi-eye"></i>
+              <div>
+                <span>Tab state</span>
+                <strong>{{ visibilityLabel(selectedSession?.visibilityState) }}</strong>
+              </div>
+            </article>
+            <article :class="{ 'is-warning': selectedSession?.state === 'AFK' }">
+              <i class="bi bi-person-check"></i>
+              <div>
+                <span>Attention</span>
+                <strong>{{ attentionLabel }}</strong>
+              </div>
+            </article>
+            <article :class="{ 'is-warning': !selectedSession?.screenShareActive }">
+              <i class="bi bi-display"></i>
+              <div>
+                <span>Screen share</span>
+                <strong>{{ selectedSession?.screenShareActive ? 'Active' : 'Off' }}</strong>
+              </div>
+            </article>
+          </div>
           <ol class="wfh-wall__events">
             <li v-for="event in filteredEvents" :key="event.id">
-              <span :class="`is-${activityTone(event.type)}`"></span>
-              <div>
+              <div :class="['wfh-wall__event-icon', `is-${activityTone(event.type)}`]">
+                <i :class="activityIcon(event.type)"></i>
+              </div>
+              <div class="wfh-wall__event-body">
                 <strong>{{ event.label || event.type }}</strong>
                 <small>
                   {{ activityTypeLabel(event.type) }}
-                  <template v-if="event.occurredAt"> · {{ formatTime(event.occurredAt) }}</template>
                 </small>
                 <small v-if="activityDetail(event)" class="wfh-wall__event-detail">
                   {{ activityDetail(event) }}
                 </small>
               </div>
+              <time v-if="event.occurredAt">{{ formatTime(event.occurredAt) }}</time>
             </li>
             <li v-if="!filteredEvents.length" class="empty">
               No employee activity has been recorded for this filter yet.
@@ -700,6 +733,7 @@ const filteredEvents = computed(() => {
   const employeeBehaviorTypes = new Set([
     'browser_started',
     'page_view',
+    'link_opened',
     'tab_focused',
     'tab_backgrounded',
     'employee_active',
@@ -709,6 +743,7 @@ const filteredEvents = computed(() => {
     'session_ended',
     'status_changed',
     'afk_detected',
+    'afk_prompt_shown',
     'afk_response',
     'offline_alert',
     'browser_offline',
@@ -732,8 +767,8 @@ const filteredEvents = computed(() => {
   return employeeEvents.filter((event) => {
     const type = event.type || '';
 
-    if (filter === 'pages') return ['browser_started', 'page_view'].includes(type);
-    if (filter === 'focus') return ['tab_focused', 'tab_backgrounded', 'employee_active', 'employee_idle', 'session_resumed'].includes(type);
+    if (filter === 'pages') return ['browser_started', 'page_view', 'link_opened'].includes(type);
+    if (filter === 'focus') return ['tab_focused', 'tab_backgrounded', 'employee_active', 'employee_idle', 'session_resumed', 'afk_detected', 'afk_prompt_shown', 'afk_response'].includes(type);
     if (filter === 'work') return ['session_started', 'session_ended', 'status_changed', 'break_started', 'break_ended', 'field_work_started'].includes(type);
     if (filter === 'alerts') return type.includes('alert') || type.includes('offline') || type.includes('afk') || type.includes('denied') || type === 'screen_share_stopped';
 
@@ -742,9 +777,9 @@ const filteredEvents = computed(() => {
 });
 
 const activityTypeLabel = (type = '') => {
-  if (['browser_started', 'page_view'].includes(type)) return 'Browser activity';
+  if (['browser_started', 'page_view', 'link_opened'].includes(type)) return 'Browser activity';
   if (['tab_focused', 'tab_backgrounded'].includes(type)) return 'Tab focus';
-  if (['employee_active', 'employee_idle', 'session_resumed'].includes(type)) return 'Activity state';
+  if (['employee_active', 'employee_idle', 'session_resumed', 'afk_detected', 'afk_prompt_shown', 'afk_response'].includes(type)) return 'Activity state';
   if (['session_started', 'session_ended', 'status_changed', 'break_started', 'break_ended', 'field_work_started'].includes(type)) return 'Work status';
   if (type.startsWith('screen_share') || type === 'screenshot_captured') return 'Screen monitoring';
   if (type.includes('offline') || type.includes('afk') || type.includes('denied') || type.includes('blocked')) return 'Attention required';
@@ -759,10 +794,28 @@ const activityTone = (type = '') => {
   return 'info';
 };
 
+const activityIcon = (type = '') => {
+  if (type === 'page_view') return 'bi bi-window';
+  if (type === 'link_opened') return 'bi bi-box-arrow-up-right';
+  if (type === 'browser_started' || type.includes('online')) return 'bi bi-globe2';
+  if (type.includes('offline')) return 'bi bi-wifi-off';
+  if (type.includes('afk') || type.includes('idle')) return 'bi bi-person-dash';
+  if (type.includes('focused') || type.includes('active') || type.includes('resumed')) return 'bi bi-person-check';
+  if (type.includes('backgrounded') || type === 'before_unload') return 'bi bi-window-dash';
+  if (type.startsWith('screen_share')) return 'bi bi-display';
+  if (type.includes('break')) return 'bi bi-cup-hot';
+  if (type.includes('session') || type === 'status_changed') return 'bi bi-clock-history';
+  return 'bi bi-activity';
+};
+
 const activityDetail = (event = {}) => {
   const payload = event.payload || {};
 
   if (event.type === 'page_view') return compactUrl(payload.url) || payload.title || '';
+  if (event.type === 'link_opened') {
+    const destination = compactUrl(payload.url);
+    return [payload.target === 'new_tab' ? 'New tab' : 'Same tab', destination].filter(Boolean).join(' · ');
+  }
   if (event.type === 'browser_started') {
     return [payload.browser, payload.platform].filter(Boolean).join(' on ');
   }
@@ -792,6 +845,14 @@ const visibilityLabel = (value = '') => {
   if (value === 'hidden') return 'Background';
   return value || '-';
 };
+
+const attentionLabel = computed(() => {
+  if (!selectedSession.value) return '-';
+  if (selectedSession.value.state === 'AFK') return 'AFK';
+  if (selectedSession.value.state === 'Offline') return 'Offline';
+  if (selectedSession.value.idleSeconds > 0 && selectedSession.value.activeSeconds === 0) return 'Idle';
+  return 'Active';
+});
 
 const canOpenLiveForSession = (session = selectedSession.value) => {
   const state = String(session?.state || '').toLowerCase();
@@ -2680,6 +2741,64 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
+.wfh-wall__activity-overview {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr) repeat(3, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.wfh-wall__activity-overview article {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 70px;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--wall-panel-strong);
+}
+
+.wfh-wall__activity-overview article > i {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+}
+
+.wfh-wall__activity-overview article.is-warning > i {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+}
+
+.wfh-wall__activity-overview article div {
+  min-width: 0;
+}
+
+.wfh-wall__activity-overview span,
+.wfh-wall__activity-overview small {
+  display: block;
+  overflow: hidden;
+  color: var(--wall-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wfh-wall__activity-overview strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--wall-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .wfh-wall__detail-card dl {
   display: grid;
   gap: 10px;
@@ -3333,50 +3452,69 @@ onBeforeUnmount(() => {
 
 .wfh-wall__events {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  max-height: 280px;
+  gap: 0;
+  max-height: 360px;
   overflow: auto;
   margin-top: 12px;
-  padding-right: 6px;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  background: var(--wall-panel-strong);
 }
 
 .wfh-wall__events li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-content: start;
-  gap: 10px;
-  min-height: 78px;
-  border: 1px solid var(--wall-border);
-  border-radius: 10px;
-  padding: 12px;
-  background: var(--wall-panel-strong);
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 11px;
+  min-height: 64px;
+  border-bottom: 1px solid var(--wall-border);
+  padding: 11px 12px;
+  background: transparent;
 }
 
-.wfh-wall__events li > span {
-  width: 8px;
-  height: 8px;
-  margin-top: 6px;
-  border-radius: 999px;
-  background: #0284c7;
+.wfh-wall__events li:last-child {
+  border-bottom: 0;
 }
 
-.wfh-wall__events li > span.is-success {
-  background: #10b981;
+.wfh-wall__event-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(2, 132, 199, 0.1);
+  color: #0284c7;
 }
 
-.wfh-wall__events li > span.is-warning {
-  background: #f59e0b;
+.wfh-wall__event-icon.is-success {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
 }
 
-.wfh-wall__events li > span.is-alert {
-  background: #f43f5e;
+.wfh-wall__event-icon.is-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+}
+
+.wfh-wall__event-icon.is-alert {
+  background: rgba(244, 63, 94, 0.12);
+  color: #e11d48;
+}
+
+.wfh-wall__event-body {
+  min-width: 0;
 }
 
 .wfh-wall__events strong {
   display: block;
   color: var(--wall-text);
   font-size: 13px;
+}
+
+.wfh-wall__events time {
+  color: var(--wall-muted);
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .wfh-wall__events .wfh-wall__event-detail {
@@ -3389,7 +3527,6 @@ onBeforeUnmount(() => {
 
 .wfh-wall__events .empty {
   display: block;
-  grid-column: 1 / -1;
   min-height: 0;
   color: var(--wall-muted);
   font-size: 13px;
@@ -3629,8 +3766,12 @@ onBeforeUnmount(() => {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .wfh-wall__events {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .wfh-wall__activity-overview {
+    grid-template-columns: repeat(3, minmax(130px, 1fr));
+  }
+
+  .wfh-wall__activity-overview .is-page {
+    grid-column: 1 / -1;
   }
 }
 
@@ -3654,8 +3795,12 @@ onBeforeUnmount(() => {
       "activity";
   }
 
-  .wfh-wall__events {
+  .wfh-wall__activity-overview {
     grid-template-columns: 1fr;
+  }
+
+  .wfh-wall__activity-overview .is-page {
+    grid-column: auto;
   }
 
   .wfh-wall__employee-list {
@@ -3673,6 +3818,14 @@ onBeforeUnmount(() => {
   .wfh-wall__actions,
   .wfh-wall__button-row {
     width: 100%;
+  }
+
+  .wfh-wall__events li {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .wfh-wall__events time {
+    grid-column: 2;
   }
 
   .wfh-wall__search,

@@ -214,6 +214,43 @@
         this.resetAfkTimer();
         $wire.respondToAfkPrompt(response);
     },
+    recordLinkActivity(event) {
+        const link = event.target?.closest?.('a[href]');
+
+        if (!link) {
+            return;
+        }
+
+        const rawHref = link.getAttribute('href');
+
+        if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('javascript:')) {
+            return;
+        }
+
+        let destination;
+
+        try {
+            destination = new URL(link.href, window.location.href);
+        } catch (error) {
+            return;
+        }
+
+        const opensNewTab = link.target === '_blank' || event.metaKey || event.ctrlKey;
+        const external = destination.origin !== window.location.origin;
+        const linkText = link.textContent?.trim()?.replace(/\s+/g, ' ').slice(0, 80);
+        const destinationLabel = linkText || destination.hostname || destination.pathname;
+
+        $wire.recordMonitoringSignal(
+            'link_opened',
+            `${opensNewTab ? 'Opened new tab' : 'Opened link'}: ${destinationLabel}`,
+            {
+                url: destination.toString(),
+                target: opensNewTab ? 'new_tab' : 'same_tab',
+                external,
+                source: 'employee_browser',
+            }
+        );
+    },
     monitoringRuntime() {
         window.jjwcWfhMonitorState = window.jjwcWfhMonitorState || {};
 
@@ -954,6 +991,7 @@
         window.addEventListener('mousemove', () => this.markActivity('mouse'));
         window.addEventListener('keydown', () => this.markActivity('key'));
         window.addEventListener('click', () => this.markActivity('click'));
+        this.$root.addEventListener('click', (event) => this.recordLinkActivity(event), true);
         window.addEventListener('touchstart', () => this.markActivity('touch'));
         document.addEventListener('visibilitychange', () => {
             this.syncMonitoring(true);

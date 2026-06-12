@@ -1967,7 +1967,11 @@ onBeforeUnmount(() => {
 
 .wfh-wall__layout {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1.35fr) minmax(320px, 420px);
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
+  grid-template-areas:
+    "roster viewer"
+    "roster details"
+    "activity activity";
   gap: 14px;
   padding-bottom: 20px;
   background: var(--wall-bg);
@@ -1995,7 +1999,12 @@ onBeforeUnmount(() => {
 }
 
 .wfh-wall__viewer {
+  grid-area: viewer;
   overflow: hidden;
+}
+
+.wfh-wall__roster {
+  grid-area: roster;
 }
 
 .wfh-wall__side,
@@ -2005,6 +2014,11 @@ onBeforeUnmount(() => {
   align-content: start;
   border: 0;
   background: transparent;
+}
+
+.wfh-wall__side {
+  grid-area: details;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .wfh-wall__panel-head,
@@ -2178,7 +2192,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   width: calc(100% - 28px);
-  height: clamp(420px, 58dvh, 720px);
+  height: clamp(380px, 52dvh, 660px);
   min-height: 0;
   margin: 14px;
   border: 1px solid var(--wall-border);
@@ -2384,9 +2398,9 @@ onBeforeUnmount(() => {
 }
 
 .wfh-wall__activity-panel {
-  grid-column: 1 / -1;
-  min-height: 260px;
-  padding: 18px;
+  grid-area: activity;
+  min-height: 0;
+  padding: 14px;
 }
 
 .wfh-wall__activity-filter {
@@ -3002,7 +3016,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-  max-height: 360px;
+  max-height: 280px;
   overflow: auto;
   margin-top: 12px;
   padding-right: 6px;
@@ -3044,8 +3058,9 @@ onBeforeUnmount(() => {
 
 .wfh-wall__report-layout {
   display: grid;
-  gap: 16px;
-  padding-top: 16px;
+  gap: 12px;
+  padding: 0 clamp(14px, 1.5vw, 24px) 20px;
+  background: var(--wall-bg);
 }
 
 .wfh-wall__report-hero,
@@ -3060,14 +3075,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 24px;
+  gap: 18px;
+  padding: 18px 20px;
 }
 
 .wfh-wall__report-hero h2 {
-  margin: 4px 0;
+  margin: 2px 0 4px;
   color: var(--wall-text);
-  font-size: 30px;
+  font-size: 24px;
   letter-spacing: 0;
 }
 
@@ -3080,11 +3095,11 @@ onBeforeUnmount(() => {
 
 .wfh-wall__report-hero > i {
   color: #059669;
-  font-size: 48px;
+  font-size: 36px;
 }
 
 .wfh-wall__report-form {
-  padding: 20px;
+  padding: 16px;
 }
 
 .wfh-wall__report-fields {
@@ -3106,7 +3121,7 @@ onBeforeUnmount(() => {
 
 .wfh-wall__report-fields input {
   width: 100%;
-  min-height: 44px;
+  min-height: 40px;
   border: 1px solid var(--wall-border);
   border-radius: 8px;
   padding: 0 12px;
@@ -3119,7 +3134,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 .wfh-wall__report-presets button {
@@ -3138,9 +3153,9 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  margin-top: 18px;
+  margin-top: 14px;
   border-top: 1px solid var(--wall-border);
-  padding-top: 18px;
+  padding-top: 14px;
 }
 
 .wfh-wall__report-submit div {
@@ -3163,7 +3178,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 38px minmax(0, 1fr);
   gap: 4px 10px;
-  padding: 18px;
+  padding: 14px;
 }
 
 .wfh-wall__report-columns i {
@@ -3190,11 +3205,10 @@ onBeforeUnmount(() => {
 
 @media (max-width: 1500px) {
   .wfh-wall__layout {
-    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
   }
 
   .wfh-wall__side {
-    grid-column: 1 / -1;
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
@@ -3213,6 +3227,14 @@ onBeforeUnmount(() => {
   .wfh-wall__side,
   .wfh-wall__report-columns {
     grid-template-columns: 1fr;
+  }
+
+  .wfh-wall__layout {
+    grid-template-areas:
+      "roster"
+      "viewer"
+      "details"
+      "activity";
   }
 
   .wfh-wall__events {
@@ -3267,7 +3289,8 @@ onBeforeUnmount(() => {
     width: 100%;
   }
 
-  .wfh-wall__video-frame {
+  .wfh-wall__video-frame,
+  .wfh-wall__snapshot-frame {
     min-height: 320px;
     height: 420px;
     aspect-ratio: auto;

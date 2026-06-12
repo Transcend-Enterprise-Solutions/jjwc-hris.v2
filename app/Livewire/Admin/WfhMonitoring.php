@@ -21,11 +21,6 @@ class WfhMonitoring extends Component
     public $newUrlPattern = '';
     public $newUrlClassification = 'productive';
 
-    public function mount()
-    {
-        return $this->redirectRoute('wfh-monitoring.wall', navigate: false);
-    }
-
     public function render()
     {
         return view('livewire.admin.wfh-monitoring');

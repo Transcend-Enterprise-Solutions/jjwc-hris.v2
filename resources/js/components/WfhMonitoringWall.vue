@@ -1,5 +1,9 @@
 <template>
-  <section ref="wallRoot" :class="['wfh-wall', 'w-full', { 'is-standalone': props.standalone, 'is-dark': isDark }]">
+  <section
+    ref="wallRoot"
+    :class="['wfh-wall', 'w-full', { 'is-standalone': props.standalone, 'is-dark': isDark }]"
+    :style="themeVariables"
+  >
     <div class="wfh-wall__shell">
       <header class="wfh-wall__header">
         <div>
@@ -566,6 +570,32 @@ const mapTypeOptions = [
   { key: 'satellite', label: 'Satellite', icon: 'bi bi-globe-asia-australia' },
   { key: 'terrain', label: 'Terrain', icon: 'bi bi-layers' },
 ];
+
+const themeVariables = computed(() => (isDark.value ? {
+  '--wall-bg': '#07111f',
+  '--wall-shell': '#07111f',
+  '--wall-panel': '#0b1628',
+  '--wall-panel-strong': '#111d30',
+  '--wall-border': 'rgba(148, 163, 184, 0.22)',
+  '--wall-text': '#e5eefb',
+  '--wall-muted': '#9fb0c6',
+  '--wall-soft': '#1e293b',
+  '--wall-input': '#101c2f',
+  '--wall-video': '#020617',
+  '--wall-shadow': '0 24px 90px rgba(2, 6, 23, 0.28)',
+} : {
+  '--wall-bg': '#f4f7fb',
+  '--wall-shell': '#ffffff',
+  '--wall-panel': '#ffffff',
+  '--wall-panel-strong': '#f8fafc',
+  '--wall-border': 'rgba(100, 116, 139, 0.22)',
+  '--wall-text': '#0f172a',
+  '--wall-muted': '#64748b',
+  '--wall-soft': '#e2e8f0',
+  '--wall-input': '#ffffff',
+  '--wall-video': '#e5e7eb',
+  '--wall-shadow': '0 24px 70px rgba(15, 23, 42, 0.14)',
+}));
 
 const rtcConfiguration = () => ({
   iceServers: props.iceServers?.length ? props.iceServers : [{ urls: 'stun:stun.l.google.com:19302' }],
@@ -1708,6 +1738,20 @@ const syncThemeState = () => {
     || localStorage.getItem('dark-mode') === 'true';
 };
 
+const handleThemeChange = (event) => {
+  if (typeof event?.detail?.dark === 'boolean') {
+    isDark.value = event.detail.dark;
+    return;
+  }
+
+  if (event?.detail?.mode === 'on' || event?.detail?.mode === 'off') {
+    isDark.value = event.detail.mode === 'on';
+    return;
+  }
+
+  syncThemeState();
+};
+
 const handleThemeStorage = (event) => {
   if (event.key === 'dark-mode') syncThemeState();
 };
@@ -1779,7 +1823,7 @@ watch([sessions, selectedSessionId, activeView], () => {
 
 onMounted(async () => {
   document.addEventListener('fullscreenchange', syncFullscreenState);
-  document.addEventListener('darkMode', syncThemeState);
+  document.addEventListener('darkMode', handleThemeChange);
   window.addEventListener('storage', handleThemeStorage);
   window.addEventListener('focus', syncThemeState);
   syncThemeState();
@@ -1794,7 +1838,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncFullscreenState);
-  document.removeEventListener('darkMode', syncThemeState);
+  document.removeEventListener('darkMode', handleThemeChange);
   window.removeEventListener('storage', handleThemeStorage);
   window.removeEventListener('focus', syncThemeState);
   themeObserver?.disconnect();

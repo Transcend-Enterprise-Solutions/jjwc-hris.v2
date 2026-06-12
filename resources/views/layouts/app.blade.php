@@ -128,8 +128,14 @@
             Alpine.store('darkMode', localStorage.getItem('dark-mode') === 'true');
 
             Alpine.effect(() => {
-                document.documentElement.classList.toggle('dark', Alpine.store('darkMode'));
-                localStorage.setItem('dark-mode', Alpine.store('darkMode'));
+                const dark = Boolean(Alpine.store('darkMode'));
+
+                document.documentElement.classList.toggle('dark', dark);
+                document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+                localStorage.setItem('dark-mode', dark);
+                document.dispatchEvent(new CustomEvent('darkMode', {
+                    detail: { mode: dark ? 'on' : 'off', dark },
+                }));
             })
         });
     </script>

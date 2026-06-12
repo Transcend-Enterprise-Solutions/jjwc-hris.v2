@@ -68,6 +68,7 @@ Route::middleware(['auth', 'checkrole:sa,hr,sv,pa'])
     ->name('wfh-monitoring.api.')
     ->group(function () {
         Route::get('/sessions', [WfhMonitoringController::class, 'index'])->name('sessions.index');
+        Route::get('/report', [WfhMonitoringController::class, 'report'])->name('report');
         Route::get('/sessions/{session}', [WfhMonitoringController::class, 'show'])->name('sessions.show');
         Route::get('/sessions/{session}/gps', [WfhMonitoringController::class, 'gps'])->name('sessions.gps');
         Route::get('/rules', [WfhMonitoringController::class, 'rules'])->name('rules.index');
@@ -95,7 +96,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/account/available', [AccountSwitchController::class, 'getAvailableAccounts']);
     Route::post('/account/switch', [AccountSwitchController::class, 'switchAccount']);
     Route::post('/account/switch-back', [AccountSwitchController::class, 'switchBackToOriginal']);
-    
+
     Route::get('/documentation', Documentation::class)->name('documentation');
 });
 

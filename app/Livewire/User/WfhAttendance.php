@@ -458,7 +458,6 @@ class WfhAttendance extends Component
         $wasAfk = $session->status === 'afk';
         $isVisible = $visibilityState === 'visible';
         $previousVisibilityState = $session->visibility_state;
-        $previousGeofenceStatus = $session->geofence_status;
         $previousBrowserUrl = $session->browser_url;
         $meta = $session->meta ?? [];
         $onlineSeconds = (int) ($session->online_seconds ?? 0);
@@ -578,12 +577,6 @@ class WfhAttendance extends Component
                 'occurred_at' => now(),
             ]);
 
-            if ($geofence['status'] === 'outside' && $this->shouldLogGeofenceAlert($session, $previousGeofenceStatus)) {
-                $this->logMonitoringEvent($session, 'geofence_alert', 'Employee location is outside the approved WFH geofence', [
-                    'distance_meters' => $geofence['distance'],
-                    'allowed_radius_meters' => $geofence['radius'],
-                ]);
-            }
         }
 
         if ($wasAfk && $isVisible) {
@@ -1297,21 +1290,6 @@ class WfhAttendance extends Component
         return Carbon::parse($latestPing->occurred_at)->lte(now()->subMinutes($intervalMinutes));
     }
 
-    protected function shouldLogGeofenceAlert($session, $previousGeofenceStatus): bool
-    {
-        if ($previousGeofenceStatus !== 'outside') {
-            return true;
-        }
-
-        $recentAlertExists = WfhMonitoringEvent::query()
-            ->where('wfh_monitoring_session_id', $session->id)
-            ->where('event_type', 'geofence_alert')
-            ->where('occurred_at', '>=', now()->subMinutes(15))
-            ->exists();
-
-        return ! $recentAlertExists;
-    }
-
     protected function calculateActivityScore($activeSeconds, $idleSeconds, $keystrokes, $mouseMoves, $clicks, $touches)
     {
         $totalSeconds = max(1, $activeSeconds + $idleSeconds);
@@ -1336,37 +1314,18 @@ class WfhAttendance extends Component
 
     protected function resolveGeofenceStatus($latitude, $longitude)
     {
-        $radius = 20;
-
         if (! $latitude || ! $longitude) {
             return [
                 'status' => 'unknown',
                 'distance' => null,
-                'radius' => $radius,
+                'radius' => null,
             ];
         }
-
-        $wfhLocation = WfhLocation::where('user_id', Auth::id())->first();
-
-        if (! $wfhLocation || ! $wfhLocation->latitude || ! $wfhLocation->longitude) {
-            return [
-                'status' => 'location_not_registered',
-                'distance' => null,
-                'radius' => $radius,
-            ];
-        }
-
-        $distance = $this->calculateDistance(
-            (float) $wfhLocation->latitude,
-            (float) $wfhLocation->longitude,
-            (float) $latitude,
-            (float) $longitude
-        );
 
         return [
-            'status' => $distance <= $radius ? 'inside' : 'outside',
-            'distance' => round($distance, 2),
-            'radius' => $radius,
+            'status' => 'located',
+            'distance' => null,
+            'radius' => null,
         ];
     }
 

@@ -2,16 +2,19 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exports\WfhMonitoringReportExport;
 use App\Http\Controllers\Controller;
 use App\Models\WfhMonitoringEvent;
 use App\Models\WfhMonitoringScreenshot;
 use App\Models\WfhMonitoringSessionRecord;
 use App\Models\WfhMonitoringUrlRule;
 use App\Support\WfhMonitoringClock;
+use App\Support\WfhMonitoringReport;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Maatwebsite\Excel\Facades\Excel;
 
 class WfhMonitoringController extends Controller
 {
@@ -75,6 +78,25 @@ class WfhMonitoringController extends Controller
             'session' => $this->sessionPayload($session),
             'locations' => $this->locationTrail($session),
         ]);
+    }
+
+    public function report(Request $request)
+    {
+        $validated = $request->validate([
+            'start_date' => ['required', 'date'],
+            'end_date' => ['required', 'date', 'after_or_equal:start_date'],
+            'employee' => ['nullable', 'string', 'max:100'],
+        ]);
+        $startDate = Carbon::parse($validated['start_date'])->startOfDay();
+        $endDate = Carbon::parse($validated['end_date'])->endOfDay();
+
+        abort_if($startDate->diffInDays($endDate) > 366, 422, 'The report range cannot exceed 366 days.');
+
+        $employee = trim((string) ($validated['employee'] ?? '')) ?: null;
+        $rows = WfhMonitoringReport::rows($startDate, $endDate, $employee);
+        $filename = "WFH-Daily-Report-{$startDate->format('Ymd')}-{$endDate->format('Ymd')}.xlsx";
+
+        return Excel::download(new WfhMonitoringReportExport($rows, $startDate, $endDate, $employee), $filename);
     }
 
     public function rules(): JsonResponse
@@ -333,7 +355,7 @@ class WfhMonitoringController extends Controller
             'status' => $session->status,
             'workStatus' => $session->work_status,
             'screenShareActive' => (bool) $session->screen_share_active,
-            'geofenceStatus' => $session->geofence_status,
+            'geofenceStatus' => is_numeric($session->last_latitude) && is_numeric($session->last_longitude) ? 'located' : 'unavailable',
             'startedAt' => WfhMonitoringClock::sessionStartedAt($session)?->toIso8601String(),
             'endedAt' => optional($session->ended_at)->toIso8601String(),
             'lastActivityAt' => optional($session->last_activity_at)->toIso8601String(),
@@ -388,7 +410,7 @@ class WfhMonitoringController extends Controller
                 'lat' => (float) $ping->latitude,
                 'lng' => (float) $ping->longitude,
                 'accuracy' => $ping->accuracy ? (float) $ping->accuracy : null,
-                'status' => $this->geofenceStatusLabel($ping->geofence_status),
+                'status' => 'Location reported',
                 'locationLabel' => $ping->location_label,
                 'occurredAt' => optional($ping->occurred_at)->toIso8601String(),
             ])
@@ -409,7 +431,7 @@ class WfhMonitoringController extends Controller
             'lat' => (float) $session->last_latitude,
             'lng' => (float) $session->last_longitude,
             'accuracy' => $session->last_location_accuracy ? (float) $session->last_location_accuracy : null,
-            'status' => $this->geofenceStatusLabel($session->geofence_status),
+            'status' => 'Location reported',
             'label' => $session->field_location_label,
             'source' => $latestPing?->source ?: 'browser',
             'occurredAt' => optional($latestPing?->occurred_at ?: $session->last_activity_at)->toIso8601String(),
@@ -435,7 +457,7 @@ class WfhMonitoringController extends Controller
             'afk' => $sessions->filter(fn ($session) => $this->monitoringState($session) === 'AFK')->count(),
             'onBreak' => $sessions->filter(fn ($session) => $this->monitoringState($session) === 'On Break')->count(),
             'screenOff' => $sessions->filter(fn ($session) => $this->monitoringState($session) === 'Screen Off')->count(),
-            'geofenceAlerts' => $sessions->where('geofence_status', 'outside')->count(),
+            'located' => $sessions->filter(fn ($session) => is_numeric($session->last_latitude) && is_numeric($session->last_longitude))->count(),
         ];
     }
 
@@ -471,20 +493,10 @@ class WfhMonitoringController extends Controller
         }
 
         if ($user->userData) {
-            return trim($user->userData->surname . ', ' . $user->userData->first_name . ' ' . ($user->userData->middle_name ?? ''));
+            return trim($user->userData->surname.', '.$user->userData->first_name.' '.($user->userData->middle_name ?? ''));
         }
 
         return (string) $user->name;
-    }
-
-    protected function geofenceStatusLabel($status): string
-    {
-        return match ($status) {
-            'inside' => 'Inside approved location',
-            'outside' => 'Outside approved location',
-            'unknown' => 'Location unavailable',
-            default => '',
-        };
     }
 
     protected function dateFromRequest(Request $request): Carbon

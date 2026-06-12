@@ -49,6 +49,10 @@
           <i class="bi bi-geo-alt"></i>
           Location Map
         </button>
+        <button type="button" :class="{ active: activeView === 'reports' }" @click="activeView = 'reports'">
+          <i class="bi bi-file-earmark-spreadsheet"></i>
+          WFH Reports
+        </button>
       </nav>
 
       <main v-show="activeView === 'monitor'" class="wfh-wall__layout">
@@ -218,6 +222,10 @@
               <span>{{ locationSessions.length }} employee{{ locationSessions.length === 1 ? '' : 's' }} reporting location</span>
             </div>
             <div class="wfh-wall__button-row">
+              <button class="wfh-wall__button wfh-wall__button--muted" type="button" @click="refreshLocations">
+                <i class="bi bi-arrow-clockwise"></i>
+                Refresh GPS
+              </button>
               <button class="wfh-wall__button wfh-wall__button--muted" type="button" @click="fitLocationMap">
                 <i class="bi bi-crosshair"></i>
                 Recenter
@@ -271,9 +279,7 @@
               </button>
             </div>
             <div class="wfh-wall__map-legend">
-              <span><i class="inside"></i> Inside</span>
-              <span><i class="outside"></i> Outside</span>
-              <span><i class="unknown"></i> Unknown</span>
+              <span><i></i> Employee GPS location</span>
             </div>
           </div>
         </section>
@@ -282,7 +288,7 @@
           <article class="wfh-wall__detail-card">
             <div class="wfh-wall__card-head">
               <h3>Map Roster</h3>
-              <span>{{ locationSessions.length }} online</span>
+              <span>{{ locationSessions.length }} located</span>
             </div>
             <div class="wfh-wall__location-list wfh-wall__location-list--large">
               <button
@@ -310,7 +316,7 @@
             </div>
             <dl>
               <div><dt>Employee</dt><dd>{{ selectedSession?.employee?.name || '-' }}</dd></div>
-              <div><dt>Status</dt><dd>{{ selectedLocation?.status || '-' }}</dd></div>
+              <div><dt>Last reported</dt><dd>{{ selectedLocation ? relativeTime(selectedLocation.occurredAt || selectedSession?.lastActivityAt) : '-' }}</dd></div>
               <div><dt>Latitude</dt><dd>{{ coordinateLabel(selectedLocation?.lat) }}</dd></div>
               <div><dt>Longitude</dt><dd>{{ coordinateLabel(selectedLocation?.lng) }}</dd></div>
               <div><dt>Accuracy</dt><dd>{{ accuracyLabel(selectedLocation?.accuracy) }}</dd></div>
@@ -320,12 +326,16 @@
               <i class="bi bi-map"></i>
               View selected location
             </a>
+            <button v-if="selectedLocation" class="wfh-wall__wide-link" type="button" @click="copySelectedCoordinates">
+              <i class="bi bi-copy"></i>
+              {{ coordinatesCopied ? 'Coordinates copied' : 'Copy coordinates' }}
+            </button>
           </article>
 
           <article class="wfh-wall__detail-card">
             <div class="wfh-wall__card-head">
               <h3>GPS Signal</h3>
-              <span>{{ selectedSession?.geofenceStatus || 'unknown' }}</span>
+              <span>{{ selectedLocation ? relativeTime(selectedLocation.occurredAt || selectedSession?.lastActivityAt) : 'Waiting' }}</span>
             </div>
             <div class="wfh-wall__signal-card">
               <div>
@@ -339,6 +349,70 @@
             </div>
           </article>
         </aside>
+      </main>
+
+      <main v-show="activeView === 'reports'" class="wfh-wall__report-layout">
+        <section class="wfh-wall__report-hero">
+          <div>
+            <p class="wfh-wall__eyebrow">Daily WFH statistics</p>
+            <h2>Generate Excel Report</h2>
+            <span>Export aligned employee-day records for attendance review and management reporting.</span>
+          </div>
+          <i class="bi bi-file-earmark-spreadsheet"></i>
+        </section>
+
+        <section class="wfh-wall__report-form">
+          <div class="wfh-wall__report-fields">
+            <label>
+              <span>Start date</span>
+              <input v-model="reportStartDate" type="date" :max="reportEndDate" />
+            </label>
+            <label>
+              <span>End date</span>
+              <input v-model="reportEndDate" type="date" :min="reportStartDate" />
+            </label>
+            <label class="is-wide">
+              <span>Employee</span>
+              <input v-model.trim="reportEmployee" type="search" placeholder="All employees or search name / ID" />
+            </label>
+          </div>
+
+          <div class="wfh-wall__report-presets">
+            <button type="button" @click="setReportRange('today')">Today</button>
+            <button type="button" @click="setReportRange('week')">Last 7 days</button>
+            <button type="button" @click="setReportRange('month')">This month</button>
+            <button type="button" @click="setReportRange('thirty')">Last 30 days</button>
+          </div>
+
+          <div class="wfh-wall__report-submit">
+            <div>
+              <strong>{{ reportRangeLabel }}</strong>
+              <span>One row per employee per day, with multiple sessions combined.</span>
+            </div>
+            <a :href="reportDownloadUrl" class="wfh-wall__button wfh-wall__button--primary">
+              <i class="bi bi-download"></i>
+              Download Excel
+            </a>
+          </div>
+        </section>
+
+        <section class="wfh-wall__report-columns">
+          <article>
+            <i class="bi bi-clock-history"></i>
+            <strong>Attendance totals</strong>
+            <span>First time in, last activity, online, active, idle, and activity percentage.</span>
+          </article>
+          <article>
+            <i class="bi bi-cursor"></i>
+            <strong>Work activity</strong>
+            <span>Sessions, work status, keystrokes, mouse movement, clicks, and touches.</span>
+          </article>
+          <article>
+            <i class="bi bi-geo-alt"></i>
+            <strong>Location & device</strong>
+            <span>Latest daily GPS coordinates, accuracy, browser, and employee device.</span>
+          </article>
+        </section>
       </main>
     </div>
   </section>
@@ -414,6 +488,10 @@ const snapshotCapturedAt = ref('');
 const snapshotStatus = ref('Select an employee to view their latest screen frame.');
 const snapshotBusy = ref(false);
 const snapshotActive = ref(false);
+const coordinatesCopied = ref(false);
+const reportStartDate = ref(new Date().toISOString().slice(0, 10));
+const reportEndDate = ref(new Date().toISOString().slice(0, 10));
+const reportEmployee = ref('');
 let locationMap = null;
 let locationBounds = null;
 let locationMarkers = new Map();
@@ -440,7 +518,7 @@ const statCards = computed(() => [
   { key: 'afk', label: 'AFK', value: stats.value.afk || 0 },
   { key: 'onBreak', label: 'On Break', value: stats.value.onBreak || 0 },
   { key: 'screenOff', label: 'Screen Off', value: stats.value.screenOff || 0 },
-  { key: 'geofenceAlerts', label: 'Geofence', value: stats.value.geofenceAlerts || 0 },
+  { key: 'located', label: 'Located', value: stats.value.located || 0 },
 ]);
 
 const selectedSession = computed(() => {
@@ -466,13 +544,27 @@ const latestLocationSession = computed(() => {
 
 const locationMetricCards = computed(() => {
   const located = locationSessions.value;
+  const recent = located.filter((session) => {
+    const value = session.lastLocation?.occurredAt || session.lastActivityAt;
+    return value && Date.now() - new Date(value).getTime() <= 5 * 60 * 1000;
+  });
 
   return [
     { key: 'located', label: 'Located', value: located.length },
-    { key: 'inside', label: 'Inside', value: located.filter((session) => locationStatusKind(session) === 'inside').length },
-    { key: 'outside', label: 'Outside', value: located.filter((session) => locationStatusKind(session) === 'outside').length },
-    { key: 'unknown', label: 'Unknown', value: located.filter((session) => locationStatusKind(session) === 'unknown').length },
+    { key: 'active', label: 'Active now', value: located.filter((session) => String(session.state).toLowerCase() === 'active').length },
+    { key: 'recent', label: 'GPS in last 5m', value: recent.length },
   ];
+});
+
+const reportDownloadUrl = computed(() => apiUrl('/report', {
+  start_date: reportStartDate.value,
+  end_date: reportEndDate.value,
+  employee: reportEmployee.value,
+}));
+
+const reportRangeLabel = computed(() => {
+  const formatter = new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${formatter.format(new Date(`${reportStartDate.value}T00:00:00`))} - ${formatter.format(new Date(`${reportEndDate.value}T00:00:00`))}`;
 });
 
 const liveStatusTitle = computed(() => {
@@ -505,7 +597,6 @@ const filteredEvents = computed(() => {
     'status_changed',
     'afk_detected',
     'afk_response',
-    'geofence_alert',
     'offline_alert',
     'browser_offline',
     'browser_online',
@@ -1317,23 +1408,9 @@ const renderLocationMap = async () => {
   }
 };
 
-const locationStatusKind = (session) => {
-  const status = String(session?.lastLocation?.status || session?.geofenceStatus || '').toLowerCase();
-
-  if (status.includes('inside')) return 'inside';
-  if (status.includes('outside')) return 'outside';
-  return 'unknown';
-};
-
 const locationPinSvg = (session, selected = false) => {
-  const kind = locationStatusKind(session);
   const label = escapeHtml(initials(session.employee?.name));
-  const colors = {
-    inside: '#10b981',
-    outside: '#e11d48',
-    unknown: '#64748b',
-  };
-  const color = colors[kind] || colors.unknown;
+  const color = selected ? '#0284c7' : '#2563eb';
   const width = selected ? 58 : 48;
   const height = selected ? 70 : 60;
   const center = width / 2;
@@ -1374,13 +1451,11 @@ const locationPopupHtml = (session) => {
   const location = session.lastLocation || {};
   const name = escapeHtml(session.employee?.name || 'Unknown employee');
   const empCode = escapeHtml(session.employee?.empCode || 'No employee ID');
-  const status = escapeHtml(location.status || location.label || 'Location available');
   const lat = coordinateLabel(location.lat);
   const lng = coordinateLabel(location.lng);
   const accuracy = accuracyLabel(location.accuracy);
   const lastPing = escapeHtml(relativeTime(location.occurredAt || session.lastActivityAt));
   const mapsUrl = `https://www.google.com/maps?q=${encodeURIComponent(`${location.lat},${location.lng}`)}`;
-  const kind = locationStatusKind(session);
 
   return `
     <div class="wfh-map-popup">
@@ -1391,9 +1466,9 @@ const locationPopupHtml = (session) => {
           <span>${empCode}</span>
         </div>
       </div>
-      <div class="wfh-map-popup__status is-${kind}">
+      <div class="wfh-map-popup__status">
         <i></i>
-        <span>${status}</span>
+        <span>GPS reported ${lastPing}</span>
       </div>
       <div class="wfh-map-popup__grid">
         <div><span>Latitude</span><strong>${escapeHtml(lat)}</strong></div>
@@ -1460,11 +1535,44 @@ const selectLatestLocation = () => {
   selectLocationSession(latestLocationSession.value.id);
 };
 
+const refreshLocations = async () => {
+  await loadSessions();
+  await nextTick();
+  await renderLocationMap();
+};
+
 const locationSummary = (session) => {
   const location = session.lastLocation || {};
-  const accuracy = location.accuracy ? `, ${accuracyLabel(location.accuracy)}` : '';
+  return location.accuracy ? `GPS accuracy ${accuracyLabel(location.accuracy)}` : 'GPS location reported';
+};
 
-  return `${location.status || location.label || 'Location available'}${accuracy}`;
+const copySelectedCoordinates = async () => {
+  if (!selectedLocation.value) return;
+
+  await navigator.clipboard.writeText(`${selectedLocation.value.lat}, ${selectedLocation.value.lng}`);
+  coordinatesCopied.value = true;
+  window.setTimeout(() => {
+    coordinatesCopied.value = false;
+  }, 1800);
+};
+
+const dateValue = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const setReportRange = (range) => {
+  const end = new Date();
+  const start = new Date(end);
+
+  if (range === 'week') start.setDate(end.getDate() - 6);
+  if (range === 'thirty') start.setDate(end.getDate() - 29);
+  if (range === 'month') start.setDate(1);
+
+  reportStartDate.value = dateValue(start);
+  reportEndDate.value = dateValue(end);
 };
 
 const coordinateLabel = (value) => {
@@ -1809,7 +1917,7 @@ onBeforeUnmount(() => {
 .wfh-wall__stat.is-afk strong { color: #d97706; }
 .wfh-wall__stat.is-onBreak strong { color: #0284c7; }
 .wfh-wall__stat.is-screenOff strong { color: #ea580c; }
-.wfh-wall__stat.is-geofenceAlerts strong { color: #e11d48; }
+.wfh-wall__stat.is-located strong { color: #2563eb; }
 
 .wfh-wall__alert {
   display: flex;
@@ -2419,7 +2527,7 @@ onBeforeUnmount(() => {
 
 .wfh-wall__map-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--wall-border);
@@ -2449,9 +2557,9 @@ onBeforeUnmount(() => {
   line-height: 1;
 }
 
-.wfh-wall__map-metric.is-inside strong { color: #059669; }
-.wfh-wall__map-metric.is-outside strong { color: #e11d48; }
-.wfh-wall__map-metric.is-unknown strong { color: #64748b; }
+.wfh-wall__map-metric.is-located strong { color: #2563eb; }
+.wfh-wall__map-metric.is-active strong { color: #059669; }
+.wfh-wall__map-metric.is-recent strong { color: #0284c7; }
 
 .wfh-wall__map-wrap {
   position: relative;
@@ -2613,9 +2721,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
 }
 
-.wfh-wall__map-legend i.inside { background: #10b981; }
-.wfh-wall__map-legend i.outside { background: #e11d48; }
-.wfh-wall__map-legend i.unknown { background: #64748b; }
+.wfh-wall__map-legend i { background: #2563eb; }
 
 .wfh-wall__location-list {
   display: grid;
@@ -2795,8 +2901,8 @@ onBeforeUnmount(() => {
   margin-top: 12px;
   border-radius: 999px;
   padding: 7px 10px;
-  background: rgba(100, 116, 139, 0.12);
-  color: var(--wall-muted);
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
   font-size: 12px;
   font-weight: 900;
 }
@@ -2806,16 +2912,6 @@ onBeforeUnmount(() => {
   height: 9px;
   border-radius: 999px;
   background: currentColor;
-}
-
-:global(.wfh-map-popup__status.is-inside) {
-  background: rgba(16, 185, 129, 0.12);
-  color: #047857;
-}
-
-:global(.wfh-map-popup__status.is-outside) {
-  background: rgba(225, 29, 72, 0.12);
-  color: #be123c;
 }
 
 :global(.wfh-map-popup__grid) {
@@ -2946,6 +3042,140 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
+.wfh-wall__report-layout {
+  display: grid;
+  gap: 16px;
+  padding-top: 16px;
+}
+
+.wfh-wall__report-hero,
+.wfh-wall__report-form,
+.wfh-wall__report-columns article {
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  background: var(--wall-panel);
+}
+
+.wfh-wall__report-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.wfh-wall__report-hero h2 {
+  margin: 4px 0;
+  color: var(--wall-text);
+  font-size: 30px;
+  letter-spacing: 0;
+}
+
+.wfh-wall__report-hero span,
+.wfh-wall__report-form span,
+.wfh-wall__report-columns span {
+  color: var(--wall-muted);
+  font-size: 13px;
+}
+
+.wfh-wall__report-hero > i {
+  color: #059669;
+  font-size: 48px;
+}
+
+.wfh-wall__report-form {
+  padding: 20px;
+}
+
+.wfh-wall__report-fields {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.7fr) minmax(170px, 0.7fr) minmax(240px, 1.4fr);
+  gap: 12px;
+}
+
+.wfh-wall__report-fields label {
+  display: grid;
+  gap: 7px;
+}
+
+.wfh-wall__report-fields label > span {
+  color: var(--wall-text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.wfh-wall__report-fields input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--wall-panel-strong);
+  color: var(--wall-text);
+  font: inherit;
+}
+
+.wfh-wall__report-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.wfh-wall__report-presets button {
+  min-height: 36px;
+  border: 1px solid var(--wall-border);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--wall-panel-strong);
+  color: var(--wall-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.wfh-wall__report-submit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  border-top: 1px solid var(--wall-border);
+  padding-top: 18px;
+}
+
+.wfh-wall__report-submit div {
+  display: grid;
+  gap: 3px;
+}
+
+.wfh-wall__report-submit strong,
+.wfh-wall__report-columns strong {
+  color: var(--wall-text);
+}
+
+.wfh-wall__report-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.wfh-wall__report-columns article {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 18px;
+}
+
+.wfh-wall__report-columns i {
+  grid-row: 1 / 3;
+  color: #2563eb;
+  font-size: 24px;
+}
+
+.wfh-wall__report-columns span {
+  line-height: 1.5;
+}
+
 .wfh-wall:fullscreen {
   overflow: auto;
   background: var(--wall-bg);
@@ -2980,7 +3210,8 @@ onBeforeUnmount(() => {
 
   .wfh-wall__layout,
   .wfh-wall__location-layout,
-  .wfh-wall__side {
+  .wfh-wall__side,
+  .wfh-wall__report-columns {
     grid-template-columns: 1fr;
   }
 
@@ -3017,8 +3248,15 @@ onBeforeUnmount(() => {
   }
 
   .wfh-wall__feed-status,
-  .wfh-wall__map-metrics {
+  .wfh-wall__map-metrics,
+  .wfh-wall__report-fields {
     grid-template-columns: 1fr;
+  }
+
+  .wfh-wall__report-hero,
+  .wfh-wall__report-submit {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .wfh-wall__tabs {

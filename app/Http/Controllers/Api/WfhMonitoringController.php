@@ -7,6 +7,7 @@ use App\Models\WfhMonitoringEvent;
 use App\Models\WfhMonitoringScreenshot;
 use App\Models\WfhMonitoringSessionRecord;
 use App\Models\WfhMonitoringUrlRule;
+use App\Support\WfhMonitoringClock;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -319,6 +320,12 @@ class WfhMonitoringController extends Controller
 
     protected function sessionPayload(WfhMonitoringSessionRecord $session, bool $includeMeta = false): array
     {
+        [$activeSeconds, $idleSeconds] = WfhMonitoringClock::normalizeActivityTotals(
+            (int) ($session->active_seconds ?? 0),
+            (int) ($session->idle_seconds ?? 0),
+            (int) ($session->online_seconds ?? 0)
+        );
+
         $payload = [
             'id' => $session->id,
             'employee' => $this->employeePayload($session),
@@ -327,12 +334,12 @@ class WfhMonitoringController extends Controller
             'workStatus' => $session->work_status,
             'screenShareActive' => (bool) $session->screen_share_active,
             'geofenceStatus' => $session->geofence_status,
-            'startedAt' => optional($session->started_at)->toIso8601String(),
+            'startedAt' => WfhMonitoringClock::sessionStartedAt($session)?->toIso8601String(),
             'endedAt' => optional($session->ended_at)->toIso8601String(),
             'lastActivityAt' => optional($session->last_activity_at)->toIso8601String(),
             'onlineSeconds' => (int) ($session->online_seconds ?? 0),
-            'activeSeconds' => (int) ($session->active_seconds ?? 0),
-            'idleSeconds' => (int) ($session->idle_seconds ?? 0),
+            'activeSeconds' => $activeSeconds,
+            'idleSeconds' => $idleSeconds,
             'activityCount' => (int) ($session->activity_count ?? 0),
             'lastLocation' => $this->locationPayload($session),
             'latestScreenshot' => $session->relationLoaded('latestScreenshot') && $session->latestScreenshot

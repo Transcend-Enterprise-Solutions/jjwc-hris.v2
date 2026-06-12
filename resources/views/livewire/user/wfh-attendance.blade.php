@@ -3,6 +3,7 @@
     showWFHLocHistory: '{{ request()->query('showWFHLocHistory', false) }}',
     viewWFHLocHistory: false,
     lastMonitoringPing: 0,
+    monitoringSyncPending: false,
     screenStream: null,
     screenVideo: null,
     screenshotTimer: null,
@@ -69,62 +70,69 @@
     async syncMonitoring(force = false, options = {}) {
         const now = Date.now();
 
-        if (!force && now - this.lastMonitoringPing < 10000) {
+        if (this.monitoringSyncPending || (!force && now - this.lastMonitoringPing < 10000)) {
             return;
         }
 
+        this.monitoringSyncPending = true;
         this.lastMonitoringPing = now;
-        const screenShareLive = this.isScreenShareLive();
-        this.screenShareActive = screenShareLive;
-        const position = options.skipLocation ? this.lastKnownPosition : await this.getMonitoringPosition();
-        const response = await $wire.recordMonitoringHeartbeat(
-            document.title,
-            window.location.href,
-            document.visibilityState,
-            position.latitude ?? null,
-            position.longitude ?? null,
-            position.accuracy ?? null,
-            screenShareLive,
-            window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true,
-            navigator.platform ?? null,
-            navigator.userAgent ?? null,
-            this.flushActivityMetrics()
-        );
+        let response;
 
-        if (response?.afkThresholdMinutes) {
-            this.afkThresholdMinutes = response.afkThresholdMinutes;
-        }
+        try {
+            const screenShareLive = this.isScreenShareLive();
+            this.screenShareActive = screenShareLive;
+            const position = options.skipLocation ? this.lastKnownPosition : await this.getMonitoringPosition();
+            response = await $wire.recordMonitoringHeartbeat(
+                document.title,
+                window.location.href,
+                document.visibilityState,
+                position.latitude ?? null,
+                position.longitude ?? null,
+                position.accuracy ?? null,
+                screenShareLive,
+                window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true,
+                navigator.platform ?? null,
+                navigator.userAgent ?? null,
+                this.flushActivityMetrics()
+            );
 
-        if (response?.screenshotIntervalMinutes && response.screenshotIntervalMinutes !== this.screenshotIntervalMinutes) {
-            this.screenshotIntervalMinutes = response.screenshotIntervalMinutes;
-            this.scheduleScreenshots();
-        }
-
-        if (response?.locationIntervalMinutes) {
-            this.locationIntervalMinutes = response.locationIntervalMinutes;
-        }
-
-        if (response?.captureScreen) {
-            this.captureScreenSnapshot('on_demand');
-        }
-
-        this.syncLiveSnapshotCapture(response?.liveSnapshots || null);
-
-        if (response?.sessionStartedAt) {
-            this.monitoringStartedAt = new Date(response.sessionStartedAt).getTime();
-        }
-
-        if (typeof response?.onlineSeconds === 'number') {
-            this.onlineSeconds = response.onlineSeconds;
-            this.onlineTickStartedAt = Date.now();
-        }
-
-        if (typeof response?.screenShareActive === 'boolean') {
-            this.screenShareActive = this.isScreenShareLive();
-
-            if (response.screenShareActive && !this.screenShareActive) {
-                this.screenResumeRequired = true;
+            if (response?.afkThresholdMinutes) {
+                this.afkThresholdMinutes = response.afkThresholdMinutes;
             }
+
+            if (response?.screenshotIntervalMinutes && response.screenshotIntervalMinutes !== this.screenshotIntervalMinutes) {
+                this.screenshotIntervalMinutes = response.screenshotIntervalMinutes;
+                this.scheduleScreenshots();
+            }
+
+            if (response?.locationIntervalMinutes) {
+                this.locationIntervalMinutes = response.locationIntervalMinutes;
+            }
+
+            if (response?.captureScreen) {
+                this.captureScreenSnapshot('on_demand');
+            }
+
+            this.syncLiveSnapshotCapture(response?.liveSnapshots || null);
+
+            if (response?.sessionStartedAt) {
+                this.monitoringStartedAt = new Date(response.sessionStartedAt).getTime();
+            }
+
+            if (typeof response?.onlineSeconds === 'number') {
+                this.onlineSeconds = response.onlineSeconds;
+                this.onlineTickStartedAt = Date.now();
+            }
+
+            if (typeof response?.screenShareActive === 'boolean') {
+                this.screenShareActive = this.isScreenShareLive();
+
+                if (response.screenShareActive && !this.screenShareActive) {
+                    this.screenResumeRequired = true;
+                }
+            }
+        } finally {
+            this.monitoringSyncPending = false;
         }
     },
     async getMonitoringPosition() {

@@ -14,6 +14,7 @@ use App\Models\WfhMonitoringLocationPing;
 use App\Models\WfhMonitoringScreenshot;
 use App\Models\WfhMonitoringSessionRecord;
 use App\Models\WfhMonitoringUrlRule;
+use App\Support\WfhMonitoringClock;
 use Carbon\Carbon;
 use DateTime;
 use Exception;
@@ -466,9 +467,15 @@ class WfhAttendance extends Component
             ? Carbon::parse($meta['last_online_accounted_at'])
             : null;
 
-        $onlineSeconds += $lastOnlineAccountedAt
+        $onlineDelta = $lastOnlineAccountedAt
             ? min(60, max(0, $lastOnlineAccountedAt->diffInSeconds($now)))
             : 0;
+        [$existingActiveSeconds, $existingIdleSeconds] = WfhMonitoringClock::normalizeActivityTotals(
+            (int) $session->active_seconds,
+            (int) $session->idle_seconds,
+            $onlineSeconds
+        );
+        $onlineSeconds += $onlineDelta;
         $meta['last_online_accounted_at'] = $now->toIso8601String();
 
         $geofence = $this->resolveGeofenceStatus($latitude, $longitude);
@@ -477,6 +484,11 @@ class WfhAttendance extends Component
         $captureScreen = (bool) $session->screenshot_request_pending;
         $activeSeconds = max(0, (int) ($activityMetrics['activeSeconds'] ?? 0));
         $idleSeconds = max(0, (int) ($activityMetrics['idleSeconds'] ?? 0));
+        [$activeSeconds, $idleSeconds] = WfhMonitoringClock::clampActivityWindow(
+            $activeSeconds,
+            $idleSeconds,
+            $onlineDelta
+        );
         $keystrokes = max(0, (int) ($activityMetrics['keystrokes'] ?? 0));
         $mouseMoves = max(0, (int) ($activityMetrics['mouseMoves'] ?? 0));
         $clicks = max(0, (int) ($activityMetrics['clicks'] ?? 0));
@@ -503,8 +515,8 @@ class WfhAttendance extends Component
             'is_pwa' => (bool) $isPwa,
             'user_agent' => $userAgent ?: $session->user_agent,
             'activity_count' => $isVisible ? $session->activity_count + 1 : $session->activity_count,
-            'active_seconds' => $session->active_seconds + $activeSeconds,
-            'idle_seconds' => $session->idle_seconds + $idleSeconds,
+            'active_seconds' => $existingActiveSeconds + $activeSeconds,
+            'idle_seconds' => $existingIdleSeconds + $idleSeconds,
             'keystroke_count' => $session->keystroke_count + $keystrokes,
             'mouse_activity_count' => $session->mouse_activity_count + $mouseMoves,
             'click_count' => $session->click_count + $clicks,
@@ -567,7 +579,7 @@ class WfhAttendance extends Component
             'screenshotIntervalMinutes' => (int) $session->screenshot_interval_minutes,
             'locationIntervalMinutes' => (int) $session->location_interval_minutes,
             'onlineSeconds' => $dailyOnlineSeconds,
-            'sessionStartedAt' => optional($session->started_at)->toIso8601String(),
+            'sessionStartedAt' => WfhMonitoringClock::sessionStartedAt($session)?->toIso8601String(),
             'screenShareActive' => (bool) $screenShareActive,
         ];
     }
@@ -1024,6 +1036,7 @@ class WfhAttendance extends Component
             'notes' => 'Auto-started from WFH Time In',
             'meta' => [
                 'source' => 'wfh_attendance',
+                'session_started_at' => now()->toIso8601String(),
                 'last_latitude' => $this->latitude,
                 'last_longitude' => $this->longitude,
                 'last_online_accounted_at' => now()->toIso8601String(),
@@ -1100,7 +1113,7 @@ class WfhAttendance extends Component
         $this->monitoringState = $this->getMonitoringState($session);
         $this->monitoringWorkStatus = $session->work_status;
         $this->monitoringLastActivity = optional($session->last_activity_at)->diffForHumans();
-        $this->monitoringSessionStartedAt = optional($session->started_at)->toIso8601String();
+        $this->monitoringSessionStartedAt = WfhMonitoringClock::sessionStartedAt($session)?->toIso8601String();
         $this->monitoringOnlineSeconds = $this->getDailyOnlineSeconds($session, (int) ($session->online_seconds ?? 0));
         $this->monitoringScreenShareActive = (bool) $session->screen_share_active;
     }

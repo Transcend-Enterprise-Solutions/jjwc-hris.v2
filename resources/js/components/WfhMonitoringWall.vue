@@ -190,9 +190,9 @@
             </div>
             <select v-model="activityFilter" class="wfh-wall__activity-filter">
               <option value="all">All activity</option>
-              <option value="screen">Screen</option>
-              <option value="location">Location</option>
-              <option value="session">Session</option>
+              <option value="pages">Pages</option>
+              <option value="focus">Focus & activity</option>
+              <option value="work">Work status</option>
               <option value="alerts">Alerts</option>
             </select>
           </div>
@@ -492,16 +492,39 @@ const snapshotEmptyTitle = computed(() => {
 
 const filteredEvents = computed(() => {
   const filter = activityFilter.value;
+  const employeeBehaviorTypes = new Set([
+    'browser_started',
+    'page_view',
+    'tab_focused',
+    'tab_backgrounded',
+    'employee_active',
+    'employee_idle',
+    'session_started',
+    'session_resumed',
+    'session_ended',
+    'status_changed',
+    'afk_detected',
+    'afk_response',
+    'geofence_alert',
+    'offline_alert',
+    'browser_offline',
+    'browser_online',
+    'before_unload',
+    'screen_share_started',
+    'screen_share_stopped',
+    'field_work_proof',
+  ]);
+  const employeeEvents = selectedEvents.value.filter((event) => employeeBehaviorTypes.has(event.type));
 
-  if (filter === 'all') return selectedEvents.value;
+  if (filter === 'all') return employeeEvents;
 
-  return selectedEvents.value.filter((event) => {
-    const haystack = `${event.type || ''} ${event.label || ''}`.toLowerCase();
+  return employeeEvents.filter((event) => {
+    const type = event.type || '';
 
-    if (filter === 'screen') return haystack.includes('screen') || haystack.includes('snapshot');
-    if (filter === 'location') return haystack.includes('location') || haystack.includes('geofence') || haystack.includes('gps');
-    if (filter === 'session') return haystack.includes('session') || haystack.includes('monitoring') || haystack.includes('time');
-    if (filter === 'alerts') return haystack.includes('alert') || haystack.includes('denied') || haystack.includes('offline') || haystack.includes('afk');
+    if (filter === 'pages') return ['browser_started', 'page_view'].includes(type);
+    if (filter === 'focus') return ['tab_focused', 'tab_backgrounded', 'employee_active', 'employee_idle', 'session_resumed'].includes(type);
+    if (filter === 'work') return ['session_started', 'session_ended', 'status_changed', 'break_started', 'break_ended', 'field_work_started'].includes(type);
+    if (filter === 'alerts') return type.includes('alert') || type.includes('offline') || type.includes('afk') || type.includes('denied') || type === 'screen_share_stopped';
 
     return true;
   });

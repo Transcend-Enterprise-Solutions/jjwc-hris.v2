@@ -14,6 +14,7 @@ use App\Models\WfhMonitoringLocationPing;
 use App\Models\WfhMonitoringScreenshot;
 use App\Models\WfhMonitoringSessionRecord;
 use App\Models\WfhMonitoringUrlRule;
+use App\Support\WfhActivity;
 use App\Support\WfhMonitoringClock;
 use Carbon\Carbon;
 use DateTime;
@@ -439,8 +440,7 @@ class WfhAttendance extends Component
         $platform = null,
         $userAgent = null,
         $activityMetrics = []
-    )
-    {
+    ) {
         if (! $this->isWfhAttendanceAvailable()) {
             return ['captureScreen' => false];
         }
@@ -461,6 +461,7 @@ class WfhAttendance extends Component
         $isVisible = $visibilityState === 'visible';
         $previousVisibilityState = $session->visibility_state;
         $previousGeofenceStatus = $session->geofence_status;
+        $previousBrowserUrl = $session->browser_url;
         $meta = $session->meta ?? [];
         $onlineSeconds = (int) ($session->online_seconds ?? 0);
         $lastOnlineAccountedAt = ! empty($meta['last_online_accounted_at'])
@@ -494,6 +495,16 @@ class WfhAttendance extends Component
         $clicks = max(0, (int) ($activityMetrics['clicks'] ?? 0));
         $touches = max(0, (int) ($activityMetrics['touches'] ?? 0));
         $activityScore = $this->calculateActivityScore($activeSeconds, $idleSeconds, $keystrokes, $mouseMoves, $clicks, $touches);
+        $interactionCount = $keystrokes + $mouseMoves + $clicks + $touches;
+        $activityState = $idleSeconds >= 30 && $interactionCount === 0 ? 'idle' : 'active';
+        $previousActivityState = $meta['activity_state'] ?? null;
+        $browserIdentified = ! empty($meta['browser_identified_at']);
+        $browserName = WfhActivity::browserName($userAgent ?: $session->user_agent);
+        $currentBrowserUrl = $browserUrl ?: $session->browser_url;
+        $currentBrowserTitle = $browserTitle ?: $session->browser_tab_title;
+
+        $meta['activity_state'] = $activityState;
+        $meta['browser_identified_at'] = $meta['browser_identified_at'] ?? $now->toIso8601String();
 
         $session->update([
             'status' => $isVisible && $wasAfk ? 'active' : $session->status,
@@ -535,6 +546,25 @@ class WfhAttendance extends Component
             ]),
         ]);
 
+        if (! $browserIdentified) {
+            $this->logMonitoringEvent($session, 'browser_started', "Monitoring active in {$browserName}", [
+                'browser' => $browserName,
+                'platform' => $platform,
+                'source' => 'employee_browser',
+            ]);
+        }
+
+        if (
+            $currentBrowserUrl
+            && WfhActivity::pageKey($previousBrowserUrl) !== WfhActivity::pageKey($currentBrowserUrl)
+        ) {
+            $this->logMonitoringEvent($session, 'page_view', WfhActivity::pageLabel($currentBrowserTitle, $currentBrowserUrl), [
+                'title' => $currentBrowserTitle,
+                'url' => $currentBrowserUrl,
+                'source' => 'employee_browser',
+            ]);
+        }
+
         if ($latitude && $longitude && $this->shouldRecordLocationPing($session)) {
             WfhMonitoringLocationPing::create([
                 'wfh_monitoring_session_id' => $session->id,
@@ -562,10 +592,29 @@ class WfhAttendance extends Component
             $this->logMonitoringEvent($session, 'session_resumed', 'Activity detected after AFK');
         }
 
-        if (! $isVisible && $previousVisibilityState !== $visibilityState) {
-            $this->logMonitoringEvent($session, 'background_monitoring_paused', 'HRIS tab is not in the foreground', [
-                'visibility_state' => $visibilityState,
-            ]);
+        if ($previousVisibilityState && $previousVisibilityState !== $visibilityState) {
+            $this->logMonitoringEvent(
+                $session,
+                $isVisible ? 'tab_focused' : 'tab_backgrounded',
+                $isVisible ? 'Returned to the HRIS tab' : 'Switched away from the HRIS tab',
+                [
+                    'visibility_state' => $visibilityState,
+                    'source' => 'employee_browser',
+                ]
+            );
+        }
+
+        if ($previousActivityState && $previousActivityState !== $activityState) {
+            $this->logMonitoringEvent(
+                $session,
+                $activityState === 'idle' ? 'employee_idle' : 'employee_active',
+                $activityState === 'idle' ? 'No activity detected in the HRIS tab' : 'Activity resumed in the HRIS tab',
+                [
+                    'active_seconds' => $activeSeconds,
+                    'idle_seconds' => $idleSeconds,
+                    'source' => 'employee_browser',
+                ]
+            );
         }
 
         $dailyOnlineSeconds = $this->getDailyOnlineSeconds($session, $onlineSeconds);
@@ -666,7 +715,7 @@ class WfhAttendance extends Component
 
         $extension = str_contains($meta, 'image/png') ? 'png' : 'jpg';
         $mime = $extension === 'png' ? 'image/png' : 'image/jpeg';
-        $path = 'wfh-monitoring/screenshots/' . Auth::id() . '/' . now()->format('YmdHis') . '-' . Str::random(8) . '.' . $extension;
+        $path = 'wfh-monitoring/screenshots/'.Auth::id().'/'.now()->format('YmdHis').'-'.Str::random(8).'.'.$extension;
 
         Storage::disk('public')->put($path, $binary);
 
@@ -897,7 +946,7 @@ class WfhAttendance extends Component
             return;
         }
 
-        $this->updateMonitoringWorkStatus($status, 'Employee declared work status: ' . $status);
+        $this->updateMonitoringWorkStatus($status, 'Employee declared work status: '.$status);
     }
 
     public function submitFieldWorkProof()
@@ -909,7 +958,7 @@ class WfhAttendance extends Component
 
         $session = $this->getOpenMonitoringSession() ?: $this->startMonitoringSession('Monitoring started from field work proof');
         $photoPath = $this->fieldWorkPhoto
-            ? $this->fieldWorkPhoto->store('wfh-monitoring/field-work/' . Auth::id(), 'public')
+            ? $this->fieldWorkPhoto->store('wfh-monitoring/field-work/'.Auth::id(), 'public')
             : $session->field_photo_path;
 
         $session->update([
@@ -942,16 +991,19 @@ class WfhAttendance extends Component
 
         if ($verifyType === 'Morning In') {
             $this->startMonitoringSession('Monitoring started from Time In', true);
+
             return;
         }
 
         if ($verifyType === 'Break Out') {
             $this->updateMonitoringWorkStatus('On Break', 'Employee started break');
+
             return;
         }
 
         if ($verifyType === 'Break In') {
             $this->updateMonitoringWorkStatus('WFH', 'Employee returned from break');
+
             return;
         }
 

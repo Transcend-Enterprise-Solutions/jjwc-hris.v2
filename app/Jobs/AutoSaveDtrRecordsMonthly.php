@@ -273,6 +273,51 @@ protected function getBreakPunchStates(bool $isWFH): array
 return $isWFH ? [5, 4] : [4, 5];
     }
 
+protected function wfhPunchByVerifyType($transactions, string $verifyType, bool $last = false)
+    {
+$matches = $transactions
+            ->filter(fn ($trans) => strcasecmp(trim((string) $trans->verify_type_display), $verifyType) === 0)
+            ->sortBy('punch_time');
+
+return $last ? $matches->last() : $matches->first();
+    }
+
+protected function applyWfhVerifyTypeTimeData(array &$timeData, $transactions, Carbon $carbonDate, ?Carbon $nextDay = null): bool
+    {
+$dayTransactions = $transactions->filter(function ($trans) use ($carbonDate, $nextDay) {
+$punchTime = Carbon::parse($trans->punch_time);
+
+return $punchTime->isSameDay($carbonDate) || ($nextDay && $punchTime->isSameDay($nextDay));
+        });
+
+$timeInPunch = $this->wfhPunchByVerifyType($dayTransactions, 'Morning In');
+$timeOutPunch = $this->wfhPunchByVerifyType($dayTransactions, 'Afternoon Out', true);
+$breakOutPunch = $this->wfhPunchByVerifyType($dayTransactions, 'Break Out');
+$breakInPunch = $this->wfhPunchByVerifyType($dayTransactions, 'Break In');
+
+if ($timeInPunch) {
+$timeData['time_in'] = Carbon::parse($timeInPunch->punch_time);
+        }
+
+if ($timeOutPunch) {
+$lastPunch = Carbon::parse($timeOutPunch->punch_time);
+
+if (!$timeData['time_in'] || $lastPunch->gt($timeData['time_in'])) {
+$timeData['time_out'] = $lastPunch;
+            }
+        }
+
+if ($breakOutPunch) {
+$timeData['break_out'] = Carbon::parse($breakOutPunch->punch_time);
+        }
+
+if ($breakInPunch) {
+$timeData['break_in'] = Carbon::parse($breakInPunch->punch_time);
+        }
+
+return (bool) ($timeInPunch || $timeOutPunch || $breakOutPunch || $breakInPunch);
+    }
+
 protected function extractTimeData($transactions, $empCode, $date, ?DTRSchedule $schedule, bool $isWFH = false): array
     {
 $carbonDate = Carbon::parse($date);
@@ -306,7 +351,21 @@ if ($schedule->is_overnight) {
 $timeData['defaultEndTime'] = $timeData['defaultEndTime']->addDay();
         }
 
-if ($schedule->is_flexi) {
+$usedWfhVerifyTypes = false;
+if ($isWFH) {
+$usedWfhVerifyTypes = $this->applyWfhVerifyTypeTimeData(
+$timeData,
+$transactions,
+$carbonDate,
+$schedule->is_overnight ? $carbonDate->copy()->addDay() : null
+            );
+
+if ($usedWfhVerifyTypes) {
+Log::info("WFH: Extracted time data from verify_type_display labels for {$empCode} on {$date}");
+            }
+        }
+
+if (!$usedWfhVerifyTypes && $schedule->is_flexi) {
 // Flexi schedule: use punch_state to determine time_in and time_out
 // Check if transactions have punch_state field
 $hasPunchState = $transactions->first() && isset($transactions->first()->punch_state);
@@ -356,7 +415,7 @@ $timeData['time_in'] = Carbon::parse($transactions->first()->punch_time);
 Log::warning("Flexi (WFH): Only one transaction found for {$empCode} on {$date}");
                 }
             }
-        } else {
+        } elseif (!$usedWfhVerifyTypes) {
 // Regular schedule with specific logic for breaks
 $this->extractRegularScheduleTimeData($timeData, $transactions, $schedule, $carbonDate, $isWFH);
         }

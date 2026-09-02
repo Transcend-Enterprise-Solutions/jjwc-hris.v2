@@ -98,6 +98,36 @@ class BioTimeService
         }
     }
 
+    public function getEmployees($params = [])
+    {
+        $this->authenticate();
+
+        if (!$this->token) {
+            $this->logError('fetch_error', 'Unable to fetch employees due to authentication failure', []);
+            return [];
+        }
+
+        try {
+            $response = $this->client->get('http://' . $this->hostPort . '/personnel/api/employees/', [
+                'headers' => [
+                    'Authorization' => 'JWT ' . $this->token,
+                ],
+                'query' => $params,
+            ]);
+
+            return json_decode($response->getBody(), true);
+        } catch (RequestException $e) {
+            $this->logError('fetch_error', 'Error fetching employees', [
+                'message' => $e->getMessage(),
+                'params' => $params,
+                'request' => $e->getRequest()->getBody()->getContents(),
+                'response' => $e->getResponse() ? $e->getResponse()->getBody()->getContents() : null,
+            ]);
+
+            return [];
+        }
+    }
+
     private function logError($type, $message, $context)
     {
         AuditLog::create([

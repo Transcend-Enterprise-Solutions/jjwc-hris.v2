@@ -80,7 +80,7 @@ class AutoSaveDtrRecords implements ShouldQueue
 
     protected function getUserSchedule(string $empCode, string $date): ?DTRSchedule
     {
-        return DTRSchedule::where('emp_code', $empCode)
+        return DTRSchedule::whereIn('emp_code', $this->empCodeVariants($empCode))
             ->whereDate('start_date', '<=', $date)
             ->whereDate('end_date', '>=', $date)
             ->first();

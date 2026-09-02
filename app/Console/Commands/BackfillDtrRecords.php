@@ -100,9 +100,14 @@ class BackfillDtrRecords extends Command
 
     protected function targetUsers($empCodes, ?string $name)
     {
+        $empCodeVariants = $empCodes
+            ->flatMap(fn ($code) => $this->empCodeVariants((string) $code))
+            ->unique()
+            ->values();
+
         return User::with('userData')
             ->where('user_role', 'emp')
-            ->when($empCodes->isNotEmpty(), fn ($query) => $query->whereIn('emp_code', $empCodes))
+            ->when($empCodeVariants->isNotEmpty(), fn ($query) => $query->whereIn('emp_code', $empCodeVariants))
             ->when($name, function ($query) use ($name) {
                 $query->where(function ($subQuery) use ($name) {
                     $subQuery->where('name', 'like', "%{$name}%")
@@ -115,6 +120,22 @@ class BackfillDtrRecords extends Command
             })
             ->orderBy('name')
             ->get();
+    }
+
+    protected function empCodeVariants(string $empCode): array
+    {
+        $trimmed = trim($empCode);
+        $variants = [$empCode, $trimmed];
+        $zeroFixed = preg_replace('/[oO]/', '0', $trimmed);
+
+        if ($zeroFixed && preg_match('/^\d+$/', $zeroFixed)) {
+            $unPadded = ltrim($zeroFixed, '0') ?: '0';
+            $variants[] = $zeroFixed;
+            $variants[] = $unPadded;
+            $variants[] = str_pad($unPadded, 3, '0', STR_PAD_LEFT);
+        }
+
+        return array_values(array_unique(array_filter($variants, fn ($code) => $code !== '')));
     }
 
     protected function dtrSummaryLine(array $userIds, string $start, string $end): string
@@ -132,6 +153,10 @@ class BackfillDtrRecords extends Command
     protected function fetchBiometricTransactions(BioTimeService $bioTimeService, string $start, string $end, $empCodes): void
     {
         $this->info("Fetching biometric transactions from {$start} to {$end}.");
+        $empCodeVariants = $empCodes
+            ->flatMap(fn ($code) => $this->empCodeVariants((string) $code))
+            ->unique()
+            ->values();
 
         $totalFetched = 0;
         foreach (CarbonPeriod::create($start, $end) as $date) {
@@ -146,15 +171,15 @@ class BackfillDtrRecords extends Command
                     'end_time' => $date->copy()->endOfDay()->format('Y-m-d H:i:s'),
                 ];
 
-                if ($empCodes->count() === 1) {
-                    $params['emp_code'] = $empCodes->first();
+                if ($empCodeVariants->count() === 1) {
+                    $params['emp_code'] = $empCodeVariants->first();
                 }
 
                 $response = $bioTimeService->getTransactions($params);
                 $records = $response['data'] ?? [];
 
                 foreach ($records as $transactionData) {
-                    if ($empCodes->isNotEmpty() && !$empCodes->contains((string) ($transactionData['emp_code'] ?? ''))) {
+                    if ($empCodeVariants->isNotEmpty() && !$empCodeVariants->contains((string) ($transactionData['emp_code'] ?? ''))) {
                         continue;
                     }
 

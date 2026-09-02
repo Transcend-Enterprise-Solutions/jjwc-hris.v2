@@ -113,11 +113,28 @@ $restDays = array_map('ucfirst', array_map('trim', explode(',', $schedule->rest_
 return in_array($date->format('l'), $restDays);
     }
 
+protected function empCodeVariants(string $empCode): array
+    {
+$trimmed = trim($empCode);
+$variants = [$empCode, $trimmed];
+$zeroFixed = preg_replace('/[oO]/', '0', $trimmed);
+
+if ($zeroFixed && preg_match('/^\d+$/', $zeroFixed)) {
+$unPadded = ltrim($zeroFixed, '0') ?: '0';
+$variants[] = $zeroFixed;
+$variants[] = $unPadded;
+$variants[] = str_pad($unPadded, 3, '0', STR_PAD_LEFT);
+        }
+
+return array_values(array_unique(array_filter($variants, fn ($code) => $code !== '')));
+    }
+
 protected function getTransactionsForDay(string $empCode, string $date, bool $isWFH, ?DTRSchedule $schedule)
     {
 $transactionModel = $isWFH ? TransactionWFH::class : Transaction::class;
 
 $transactions = collect();
+$empCodeVariants = $this->empCodeVariants($empCode);
 
 // For 24-hour schedules, get a wider range of transactions
 if ($schedule && $schedule->is_24hours) {
@@ -125,7 +142,7 @@ if ($schedule && $schedule->is_24hours) {
 $startDate = Carbon::parse($date)->subDays(2)->toDateString();
 $endDate = Carbon::parse($date)->addDays(2)->toDateString();
 
-$rangeTransactions = $transactionModel::where('emp_code', $empCode)
+$rangeTransactions = $transactionModel::whereIn('emp_code', $empCodeVariants)
                 ->whereDate('punch_time', '>=', $startDate)
                 ->whereDate('punch_time', '<=', $endDate)
                 ->orderBy('punch_time')
@@ -136,7 +153,7 @@ $transactions = $transactions->merge($rangeTransactions);
 Log::info("24H - Got transactions from {$startDate} to {$endDate}: " . $rangeTransactions->count());
         } else {
 // Get transactions for current date only for non-24hour schedules
-$currentDayTransactions = $transactionModel::where('emp_code', $empCode)
+$currentDayTransactions = $transactionModel::whereIn('emp_code', $empCodeVariants)
                 ->whereDate('punch_time', $date)
                 ->orderBy('punch_time')
                 ->get();
@@ -147,7 +164,7 @@ $transactions = $transactions->merge($currentDayTransactions);
 if ($schedule && $schedule->is_overnight) {
 $nextDay = Carbon::parse($date)->addDay()->toDateString();
 
-$nextDayTransactions = $transactionModel::where('emp_code', $empCode)
+$nextDayTransactions = $transactionModel::whereIn('emp_code', $empCodeVariants)
                     ->whereDate('punch_time', $nextDay)
                     ->orderBy('punch_time')
                     ->get();

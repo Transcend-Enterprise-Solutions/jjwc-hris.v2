@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Jobs\AutoSaveDtrRecords;
+use App\Models\EmployeesDtr;
 use App\Models\Transaction;
 use App\Models\User;
 use App\Services\BioTimeService;
@@ -59,12 +60,24 @@ class BackfillDtrRecords extends Command
         $rows = 0;
         foreach ($users as $user) {
             foreach (CarbonPeriod::create($start, $end) as $date) {
-                $processUserDtr->invoke($job, $user, $date->toDateString());
+                ob_start();
+
+                try {
+                    $processUserDtr->invoke($job, $user, $date->toDateString());
+                } finally {
+                    $bufferedOutput = ob_get_clean();
+
+                    if ($bufferedOutput && $this->output->isVerbose()) {
+                        $this->line($bufferedOutput);
+                    }
+                }
+
                 $rows++;
             }
         }
 
         $this->info("DTR backfill completed. Processed {$rows} employee-day(s).");
+        $this->line($this->dtrSummaryLine($users->pluck('id')->all(), $start, $end));
 
         return self::SUCCESS;
     }
@@ -102,6 +115,18 @@ class BackfillDtrRecords extends Command
             })
             ->orderBy('name')
             ->get();
+    }
+
+    protected function dtrSummaryLine(array $userIds, string $start, string $end): string
+    {
+        $baseQuery = EmployeesDtr::whereIn('user_id', $userIds)
+            ->whereBetween('date', [$start, $end]);
+
+        $dtrRows = (clone $baseQuery)->count();
+        $withTimeIn = (clone $baseQuery)->whereNotNull('time_in')->count();
+        $absentRows = (clone $baseQuery)->where('remarks', 'Absent')->count();
+
+        return "DTR rows in range: {$dtrRows}; rows with Time In: {$withTimeIn}; absent rows: {$absentRows}.";
     }
 
     protected function fetchBiometricTransactions(BioTimeService $bioTimeService, string $start, string $end, $empCodes): void

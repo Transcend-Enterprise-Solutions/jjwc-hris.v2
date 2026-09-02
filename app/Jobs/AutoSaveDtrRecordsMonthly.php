@@ -318,6 +318,48 @@ $timeData['break_in'] = Carbon::parse($breakInPunch->punch_time);
 return (bool) ($timeInPunch || $timeOutPunch || $breakOutPunch || $breakInPunch);
     }
 
+protected function extractNoScheduleTimeData(array &$timeData, $transactions, Carbon $carbonDate): void
+    {
+$dayTransactions = $transactions
+->filter(fn ($trans) => Carbon::parse($trans->punch_time)->isSameDay($carbonDate))
+->sortBy('punch_time')
+->values();
+
+if ($dayTransactions->isEmpty()) {
+return;
+        }
+
+$timeInPunch = $dayTransactions->where('punch_state', 0)->first() ?? $dayTransactions->first();
+$timeOutPunch = $dayTransactions->where('punch_state', 1)->sortBy('punch_time')->last();
+
+if (!$timeOutPunch && $dayTransactions->count() > 1) {
+$timeOutPunch = $dayTransactions->last();
+        }
+
+if ($timeInPunch) {
+$timeData['time_in'] = Carbon::parse($timeInPunch->punch_time)->second(0);
+        }
+
+if ($timeOutPunch) {
+$timeOut = Carbon::parse($timeOutPunch->punch_time)->second(0);
+
+if (!$timeData['time_in'] || $timeOut->gt($timeData['time_in'])) {
+$timeData['time_out'] = $timeOut;
+            }
+        }
+
+$breakOutPunch = $dayTransactions->where('punch_state', 4)->first();
+$breakInPunch = $dayTransactions->where('punch_state', 5)->first();
+
+if ($breakOutPunch) {
+$timeData['break_out'] = Carbon::parse($breakOutPunch->punch_time)->second(0);
+        }
+
+if ($breakInPunch) {
+$timeData['break_in'] = Carbon::parse($breakInPunch->punch_time)->second(0);
+        }
+    }
+
 protected function extractTimeData($transactions, $empCode, $date, ?DTRSchedule $schedule, bool $isWFH = false): array
     {
 $carbonDate = Carbon::parse($date);
@@ -333,7 +375,12 @@ $timeData = [
 'is_shift_end' => false,
         ];
 
-if (!$schedule || $transactions->isEmpty()) {
+if ($transactions->isEmpty()) {
+return $timeData;
+        }
+
+if (!$schedule) {
+$this->extractNoScheduleTimeData($timeData, $transactions, $carbonDate);
 return $timeData;
         }
 

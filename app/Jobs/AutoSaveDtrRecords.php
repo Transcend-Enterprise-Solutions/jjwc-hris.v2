@@ -20,6 +20,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class AutoSaveDtrRecords implements ShouldQueue
 {
@@ -56,6 +57,22 @@ class AutoSaveDtrRecords implements ShouldQueue
                 $this->processUserDtr($user, $this->currentDate);
             }
         });
+    }
+
+    public function recalculateForUser(User $user, string $start, string $end): void
+    {
+        // The scheduled calculator writes console output; keep it out of Livewire responses.
+        ob_start();
+
+        try {
+            DB::transaction(function () use ($user, $start, $end) {
+                foreach (CarbonPeriod::create($start, $end) as $date) {
+                    $this->processUserDtr($user, $date->toDateString());
+                }
+            });
+        } finally {
+            ob_end_clean();
+        }
     }
 
     protected function processUserDtr(User $user, string $currentDate): void
@@ -1329,6 +1346,7 @@ class AutoSaveDtrRecords implements ShouldQueue
             Log::info("DTR record saved/updated for user {$user->emp_code} on {$date}. Record ID: {$record->id}");
         } catch (\Exception $e) {
             Log::error("Error saving DTR record for user {$user->emp_code} on {$date}: " . $e->getMessage());
+            throw $e;
         }
     }
 

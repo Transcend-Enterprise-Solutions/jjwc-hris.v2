@@ -34,6 +34,36 @@
             </div>
         </div>
 
+        <details class="mb-6 border-y border-gray-200 py-3 dark:border-gray-700">
+            <summary class="cursor-pointer text-sm font-medium text-gray-900 dark:text-gray-100">
+                <i class="bi bi-arrow-repeat mr-1" aria-hidden="true"></i> Recalculate DTR
+            </summary>
+            <form wire:submit="recalculateDtr"
+                wire:confirm="Recalculate your DTR using saved HRIS records? HR corrections will be preserved. Missing BioTime punches will not be downloaded."
+                class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3 sm:items-end">
+                <div>
+                    <label for="recalculateStartDate" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Start Date</label>
+                    <input id="recalculateStartDate" type="date" wire:model="recalculateStartDate" required max="{{ now()->toDateString() }}"
+                        @error('recalculateStartDate') aria-invalid="true" aria-describedby="recalculateStartDateError" @enderror
+                        class="mt-1 block w-full rounded-md border-gray-400 text-sm dark:bg-gray-800 dark:text-gray-300 dark:border-slate-600">
+                    @error('recalculateStartDate') <p id="recalculateStartDateError" role="alert" class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <label for="recalculateEndDate" class="block text-sm font-medium text-gray-700 dark:text-gray-300">End Date</label>
+                    <input id="recalculateEndDate" type="date" wire:model="recalculateEndDate" required max="{{ now()->toDateString() }}"
+                        @error('recalculateEndDate') aria-invalid="true" aria-describedby="recalculateEndDateError" @enderror
+                        class="mt-1 block w-full rounded-md border-gray-400 text-sm dark:bg-gray-800 dark:text-gray-300 dark:border-slate-600">
+                    @error('recalculateEndDate') <p id="recalculateEndDateError" role="alert" class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                </div>
+                <button type="submit" wire:loading.attr="disabled" wire:target="recalculateDtr"
+                    class="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50">
+                    <i class="bi bi-arrow-repeat" aria-hidden="true"></i>
+                    <span wire:loading.remove wire:target="recalculateDtr">Recalculate</span>
+                    <span wire:loading wire:target="recalculateDtr" role="status">Recalculating...</span>
+                </button>
+            </form>
+        </details>
+
         <!-- Table -->
         <div class="overflow-x-auto text-sm">
             <table class="min-w-full bg-white dark:bg-gray-800 overflow-hidden">

@@ -3,6 +3,7 @@
 namespace App\Livewire\User;
 
 use Livewire\Component;
+use App\Jobs\AutoSaveDtrRecords;
 use Livewire\WithPagination;
 use App\Models\EmployeesDtr;
 use App\Models\Holiday;
@@ -21,6 +22,8 @@ class DtrTable extends Component
     public $searchTerm = '';
     public $startDate;
     public $endDate;
+    public $recalculateStartDate;
+    public $recalculateEndDate;
     public $sortField = 'date';
     public $sortDirection = 'asc';
     public $eSignature;
@@ -48,6 +51,46 @@ class DtrTable extends Component
     {
         $this->startDate = Carbon::now()->startOfMonth()->toDateString();
         $this->endDate = Carbon::now()->endOfMonth()->toDateString();
+        $this->recalculateStartDate = Carbon::now()->startOfMonth()->toDateString();
+        $this->recalculateEndDate = Carbon::today()->toDateString();
+    }
+
+    public function recalculateDtr(): void
+    {
+        $user = Auth::user();
+        abort_unless($user && $user->user_role === 'emp' && filled($user->emp_code), 403);
+
+        $this->validate([
+            'recalculateStartDate' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'recalculateEndDate' => ['required', 'date_format:Y-m-d', 'after_or_equal:recalculateStartDate', 'before_or_equal:today'],
+        ]);
+
+        if (Carbon::parse($this->recalculateStartDate)->diffInDays(Carbon::parse($this->recalculateEndDate)) > 30) {
+            $this->addError('recalculateEndDate', 'Select a maximum of 31 days.');
+            return;
+        }
+
+        try {
+            app(AutoSaveDtrRecords::class)->recalculateForUser($user, $this->recalculateStartDate, $this->recalculateEndDate);
+        } catch (\Throwable $e) {
+            report($e);
+            $this->dispatch('swal', [
+                'title' => 'Recalculation failed',
+                'text' => 'Your DTR was not changed. Please try again or contact HR.',
+                'icon' => 'error',
+            ]);
+            return;
+        }
+
+        $this->startDate = $this->recalculateStartDate;
+        $this->endDate = $this->recalculateEndDate;
+        $this->searchTerm = '';
+        $this->resetPage();
+        $this->dispatch('swal', [
+            'title' => 'DTR recalculated',
+            'text' => "Your DTR from {$this->startDate} to {$this->endDate} was recalculated using saved HRIS records. Missing BioTime punches must be synced separately.",
+            'icon' => 'success',
+        ]);
     }
 
     public function updatedPageSize()
